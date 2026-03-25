@@ -1,0 +1,852 @@
+/* ------------------ CSS Variables & Theming ------------------ */
+:root {
+  --primary: #4f46e5;        /* Modern Indigo */
+  --primary-hover: #4338ca;
+  --primary-light: #e0e7ff;
+  --sidebar-bg: #0f172a;     /* Slate 900 */
+  --sidebar-hover: #1e293b;  /* Slate 800 */
+  --sidebar-text: #94a3b8;
+  --bg-color: #f8fafc;       /* Slate 50 */
+  --card-bg: #ffffff;
+  --text-main: #0f172a;
+  --text-muted: #64748b;
+  --border-color: #e2e8f0;
+  --success: #10b981;        /* Emerald */
+  --danger: #ef4444;         /* Red */
+  --warning: #f59e0b;        /* Amber */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --radius-md: 8px;
+  --radius-lg: 12px;
+}
+
+/* ------------------ Base & Reset ------------------ */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  line-height: 1.5;
+}
+
+/* ------------------ App Layout ------------------ */
+.staff-dashboard {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ------------------ Sidebar Navigation ------------------ */
+.sidebar {
+  width: 280px;
+  background-color: var(--sidebar-bg);
+  display: flex;
+  flex-direction: column;
+  padding: 24px 0;
+  box-shadow: var(--shadow-lg);
+  z-index: 10;
+}
+
+.sidebar h2 {
+  color: #ffffff;
+  text-align: center;
+  margin-bottom: 32px;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.sidebar button {
+  background: transparent;
+  border: none;
+  color: var(--sidebar-text);
+  padding: 12px 24px;
+  margin: 4px 16px;
+  text-align: left;
+  font-size: 0.95rem;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sidebar button:hover {
+  background-color: var(--sidebar-hover);
+  color: #ffffff;
+}
+
+/* Add an active class style if you update your React code to apply an 'active' class to the current tab */
+.sidebar button.active {
+  background-color: var(--primary);
+  color: #ffffff;
+}
+
+/* ------------------ Main Content Area ------------------ */
+.content {
+  flex: 1;
+  padding: 40px 48px;
+  overflow-y: auto;
+  background-color: var(--bg-color);
+}
+
+.content h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 32px;
+}
+
+.content h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-top: 32px;
+  margin-bottom: 16px;
+}
+
+/* ------------------ Deed Templates Grid ------------------ */
+.deed-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.deed-tile {
+  background-color: var(--card-bg);
+  padding: 24px 20px;
+  border-radius: var(--radius-lg);
+  text-align: center;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  border: 2px solid transparent;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s ease-in-out;
+}
+
+.deed-tile:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-md);
+  color: var(--text-main);
+}
+
+.deed-tile.active {
+  border-color: var(--primary);
+  background-color: var(--primary-light);
+  color: var(--primary);
+  box-shadow: var(--shadow-sm);
+}
+
+iframe {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background-color: var(--card-bg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ------------------ Forms & Inputs ------------------ */
+.content div > label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--text-main);
+  text-transform: capitalize;
+}
+
+.content input {
+  width: 100%;
+  max-width: 500px;
+  padding: 12px 16px;
+  margin-bottom: 24px;
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: 0.95rem;
+  color: var(--text-main);
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.content input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2); /* Soft focus ring */
+}
+
+.content input::placeholder {
+  color: #94a3b8;
+}
+
+.content button {
+  background-color: var(--primary);
+  color: #ffffff;
+  border: none;
+  padding: 12px 24px;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.content button:hover {
+  background-color: var(--primary-hover);
+}
+
+.content button:active {
+  transform: translateY(1px);
+}
+
+/* ------------------ Data Tables ------------------ */
+table {
+  width: 100%;
+  max-width: 900px;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--card-bg);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-color);
+}
+
+th, td {
+  padding: 16px 20px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+th {
+  background-color: #f8fafc;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+tr:hover td {
+  background-color: #f1f5f9;
+}
+
+/* ------------------ Status Tracking Tracker ------------------ */
+.status-card {
+  background: var(--card-bg);
+  padding: 32px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  margin-bottom: 24px;
+  max-width: 800px;
+  border: 1px solid var(--border-color);
+}
+
+.status-card p {
+  margin-bottom: 8px;
+  color: var(--text-muted);
+}
+
+.status-card b {
+  color: var(--text-main);
+}
+
+.status-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 40px;
+  position: relative;
+}
+
+.line {
+  flex: 1;
+  height: 3px;
+  background-color: var(--border-color);
+  margin: -25px 10px 0 10px; /* Aligns line with icons, adds breathing room */
+  z-index: 1;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 120px;
+  color: #cbd5e1;
+  z-index: 2;
+}
+
+.step .icon {
+  width: 48px;
+  height: 48px;
+  background-color: var(--card-bg);
+  border: 2px solid var(--border-color);
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 1.25rem;
+  margin-bottom: 12px;
+  transition: all 0.3s ease;
+  color: #cbd5e1;
+}
+
+.step p {
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: center;
+  margin: 0;
+  color: inherit;
+}
+
+/* Tracking States */
+.step.active {
+  color: var(--primary);
+}
+.step.active .icon {
+  border-color: var(--primary);
+  background-color: var(--primary-light);
+  color: var(--primary);
+}
+
+.step.approved {
+  color: var(--success);
+}
+.step.approved .icon {
+  border-color: var(--success);
+  background-color: #d1fae5;
+  color: var(--success);
+}
+
+.step.rejected {
+  color: var(--danger);
+}
+.step.rejected .icon {
+  border-color: var(--danger);
+  background-color: #fee2e2;
+  color: var(--danger);
+}
+
+/* ------------------ Notifications ------------------ */
+.content > div > p:not(.status-card p) {
+  padding: 16px;
+  background: var(--card-bg);
+  border-left: 4px solid var(--warning);
+  margin-bottom: 12px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-main);
+  font-weight: 500;
+}
+
+/* ------------------ Responsive Design ------------------ */
+@media (max-width: 768px) {
+  .staff-dashboard {
+    flex-direction: column;
+  }
+  
+  .sidebar {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 16px;
+    box-shadow: var(--shadow-md);
+  }
+
+  .sidebar h2 {
+    width: 100%;
+    margin-bottom: 16px;
+  }
+
+  .sidebar button {
+    margin: 4px;
+    padding: 8px 16px;
+    text-align: center;
+  }
+
+  .content {
+    padding: 24px 16px;
+  }
+  
+  .status-line {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
+  }
+  
+  .line {
+    display: none; /* Hide horizontal lines on mobile tracking */
+  }
+  
+  .step {
+    flex-direction: row;
+    width: 100%;
+    text-align: left;
+  }
+  
+  .step .icon {
+    margin-bottom: 0;
+    margin-right: 16px;
+  }
+}
+.notification-bell { position: relative; }
+.bell-badge {
+  position: absolute; top: -5px; right: -5px;
+  background: red; color: white; border-radius: 50%;
+  padding: 2px 6px; font-size: 12px; font-weight: bold;
+}
+.preview-box {
+  margin-top: 30px; padding: 20px; border: 2px solid #007bff; border-radius: 8px; background: #f0f7ff;
+}
+.status-label { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+.status-label.pending { background: #fff3cd; color: #856404; }
+.status-label.prepared { background: #d4edda; color: #155724; }
+.notif-item { padding: 10px; border-bottom: 1px solid #ddd; cursor: pointer; margin-bottom: 5px; }
+.notif-item.unread { background: #e8f0fe; border-left: 4px solid #1a73e8; font-weight: bold; }
+.notif-item.read { background: #f8f9fa; color: #666; }
+.tracking-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  border: 1px solid #eee;
+}
+
+.tracking-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 30px;
+}
+
+.tracking-timestamp {
+  text-align: right;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+/* Stepper Logic */
+.stepper-wrapper {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 20px;
+}
+
+.step-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+
+.step-counter {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  background: #ccc;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  z-index: 2;
+  transition: all 0.3s ease;
+}
+
+.step-name {
+  margin-top: 8px;
+  font-size: 0.8rem;
+  color: #888;
+  font-weight: 500;
+}
+
+.step-line {
+  position: absolute;
+  top: 17px;
+  left: 50%;
+  width: 100%;
+  height: 3px;
+  background: #eee;
+  z-index: 1;
+}
+
+/* Active & Completed States */
+.step-item.completed .step-counter {
+  background-color: #4caf50; /* Green for done */
+}
+
+.step-item.completed .step-line {
+  background-color: #4caf50;
+}
+
+.step-item.active .step-counter {
+  background-color: #2196f3; /* Blue for current */
+  box-shadow: 0 0 0 4px rgba(33, 150, 243, 0.2);
+}
+
+.step-item.active .step-name {
+  color: #2196f3;
+  font-weight: bold;
+}
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 20px;
+  margin-bottom: 10px;
+  border-bottom: 5px solid rgba(255, 255, 255, 0.1); /* Adds a nice separator line */
+}
+
+.sidebar-header h2 {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.notification-bell {
+  position: relative;
+  cursor: pointer;
+  margin-right: 10px; /* Pushes the bell slightly away from the edge */
+  color: #94a3b8;
+  transition: color 0.3s ease;
+}
+
+.notification-bell:hover {
+  color: #ffffff; /* Lights up when hovered */
+}
+
+.bell-badge {
+  position: absolute;
+  top: -5px;
+  right: -8px;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 50%;
+  box-shadow: 0 2px 5px rgba(239, 68, 68, 0.4);
+}
+/* Stepper Tracking Card */
+
+.tracking-card {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+}
+
+.tracking-card-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 25px;
+}
+
+.submission-time {
+  text-align: right;
+  font-size: 12px;
+  color: #888;
+}
+
+/* Stepper Logic */
+.stepper {
+  display: flex;
+  justify-content: space-between;
+  position: relative;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  position: relative;
+}
+
+.circle {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #e0e0e0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  z-index: 2;
+  font-weight: bold;
+}
+
+.line {
+  position: absolute;
+  top: 15px;
+  left: 50%;
+  width: 100%;
+  height: 2px;
+  background: #e0e0e0;
+  z-index: 1;
+}
+
+.label {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #999;
+}
+
+.step.completed .circle { background: #4caf50; }
+.step.completed .line { background: #4caf50; }
+.step.completed .label { color: #4caf50; }
+
+.step.active .circle { background: #2196f3; box-shadow: 0 0 0 4px rgba(33, 150, 243, 0.2); }
+.step.active .label { color: #2196f3; font-weight: bold; }
+
+/* General UI */
+.primary-btn { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
+.preview-box { border: 2px dashed #2196f3; padding: 15px; background: #f0f7ff; margin-top: 20px; border-radius: 8px; }
+.notif-item { padding: 12px; border-radius: 6px; margin-bottom: 8px; cursor: pointer; }
+.notif-item.unread { background: #fff4e5; border-left: 4px solid #ffa000; }
+.notif-item.read { background: #f5f5f5; opacity: 0.7; }
+/* Makes the last circle red when rejected */
+.step.is-rejected .circle {
+  background-color: #ff0000 !important;
+  border-color: #ff0000 !important;
+  color: white !important;
+}
+
+/* Styles the warning message under the stepper */
+.rejection-warning-msg {
+  color: #ff0000;
+  background-color: #fff5f5;
+  padding: 10px;
+  border-radius: 5px;
+  border-left: 4px solid #ff0000;
+  margin-top: 15px;
+  font-size: 14px;
+}
+
+.resubmit-btn {
+  background-color: #ff0000;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  margin-top: 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+}
+.sidebar {
+  display: flex;
+  flex-direction: column; /* Ensures the sidebar acts as a vertical column */
+}
+
+.logout-btn {
+  margin-top: auto !important; /* Forces it to the bottom */
+  background-color: #dc2626 !important;
+  color: white !important;
+  border: none !important;
+}
+
+.logout-btn:hover {
+  background: #fee2e2 !important;
+  color: #dc2626 !important;
+}
+/* ================= Top Bar (Profile + Logout Side-by-Side) ================= */
+.top-bar-container {
+  position: absolute;
+  top: 35px;
+  right: 50px;
+  display: flex;
+  align-items: center;
+  gap: 15px; /* Spacing between Avatar and Logout Button */
+  z-index: 100;
+}
+
+.profile-wrapper {
+  position: relative;
+}
+
+.profile-avatar {
+  width: 45px;
+  height: 45px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary), #3b82f6);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  transition: var(--transition);
+  user-select: none;
+  border: 2px solid white;
+}
+
+.profile-avatar:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.avatar-initials {
+  font-size: 18px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+/* Red Logout Button Outside Dropdown */
+.top-logout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: #fff1f2;
+  color: #e11d48;
+  border: 1px solid #fecdd3;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+
+.top-logout-btn:hover {
+  background: #e11d48;
+  color: #ffffff;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(225, 29, 72, 0.25);
+  border-color: #e11d48;
+}
+
+/* Invisible overlay to close dropdown when clicking outside */
+.profile-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 99;
+}
+
+/* Floating Profile Card */
+.profile-dropdown {
+  position: absolute;
+  top: 55px;
+  right: 0; 
+  width: 280px;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+  z-index: 100;
+  animation: dropDownAnim 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes dropDownAnim {
+  from { opacity: 0; transform: translateY(-10px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.profile-header {
+  padding: 30px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+}
+
+.profile-pic-large {
+  width: 75px;
+  height: 75px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 15px;
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  border: 3px solid white;
+  outline: 2px solid #e2e8f0;
+}
+
+.profile-pic-large img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.large-initials {
+  font-size: 32px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.upload-overlay {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 0;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.profile-pic-large:hover .upload-overlay {
+  opacity: 1;
+}
+
+.profile-details h4 {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.profile-details p {
+  margin: 4px 0 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.role-badge {
+  background: #e0e7ff;
+  color: var(--primary);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Push page titles down so they don't hide behind the new top bar */
+.page-title, .tab-view h2, .form-container h2, .scan-container h2, .client-section h2, .tracking-section h2 {
+  margin-top: 50px; 
+}

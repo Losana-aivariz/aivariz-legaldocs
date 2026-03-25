@@ -1,0 +1,44 @@
+/* src/pages/UploadDocument.css */
+.upload-container, .draft-container, .admin-dashboard, .drafts-container {
+  padding: 20px;
+  margin: 20px;
+  background-color: #f0f8ff;
+  border-radius: 8px;
+}
+
+input, textarea, button {
+  display: block;
+  margin: 10px 0;
+  padding: 10px;
+}
+
+.status-cards {
+  display: flex;
+  gap: 10px;
+}
+
+.status-cards .card {
+  padding: 20px;
+  border-radius: 8px;
+  color: white;
+  font-weight: bold;
+}
+
+.status-cards .approved { background-color: green; }
+.status-cards .pending { background-color: orange; }
+.status-cards .rejected { background-color: red; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+}
+
+table, th, td {
+  border: 1px solid black;
+}
+
+th, td {
+  padding: 10px;
+  text-align: left;
+}
