@@ -22,22 +22,35 @@ app.use("/uploads", express.static(uploadsDir));
 
 // Helper function to save base64 PDF and return the public URL
 function saveBase64Pdf(base64String, draftId) {
-    if (!base64String || !base64String.startsWith('data:application/pdf;base64,')) {
+    if (!base64String) {
+        console.error("❌ saveBase64Pdf: No base64String provided");
         return null;
     }
-    // Strip the data URL prefix
-    const base64Data = base64String.replace(/^data:application\/pdf;base64,/, '');
-    const buffer = Buffer.from(base64Data, 'base64');
-    
-    // Generate a unique filename using the draft ID
-    const filename = `draft_${draftId}.pdf`;
-    const filePath = path.join(__dirname, 'uploads', filename);
-    
-    // Write file synchronously (or use async with error handling)
-    fs.writeFileSync(filePath, buffer);
-    
-    // Return the public URL path
-    return `/uploads/${filename}`;
+    if (!base64String.startsWith('data:application/pdf;base64,')) {
+        console.error("❌ saveBase64Pdf: Invalid base64 prefix. Expected 'data:application/pdf;base64,' but got:", base64String.substring(0, 50));
+        return null;
+    }
+
+    try {
+        const base64Data = base64String.replace(/^data:application\/pdf;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
+
+        // Validate buffer size (optional)
+        if (buffer.length < 100) {
+            console.error("❌ saveBase64Pdf: Buffer too small, possibly invalid PDF:", buffer.length);
+            return null;
+        }
+
+        const filename = `draft_${draftId}.pdf`;
+        const filePath = path.join(__dirname, 'uploads', filename);
+
+        fs.writeFileSync(filePath, buffer);
+        console.log(`✅ PDF saved: ${filePath} (size: ${buffer.length} bytes)`);
+        return `/uploads/${filename}`;
+    } catch (err) {
+        console.error("❌ saveBase64Pdf: Error writing file:", err.message);
+        return null;
+    }
 }
 
 // ================= DATABASE CONNECTION =================
@@ -288,8 +301,14 @@ app.get("/api/drafts/:id", (req, res) => {
 app.post("/api/drafts/submit", (req, res) => {
     const { id, deedType, clientName, clientPhone, createdBy, isImportant, isResubmitted, submittedOn, pdfAttachment, content } = req.body;
 
+    console.log("📥 Received draft submission, ID:", id, "PDF length:", pdfAttachment?.length || 0);
+    if (!pdfAttachment) {
+        console.warn("⚠️ pdfAttachment is missing from request body!");
+    }
+
     // Save PDF to disk and get its URL
     const pdfUrl = saveBase64Pdf(pdfAttachment, id);
+    console.log("📎 PDF URL after save:", pdfUrl);   // Will be null if failed
 
     const submittedOnJson = JSON.stringify(submittedOn);
     const sql = `INSERT INTO drafts (id, deedType, clientName, clientPhone, status, createdBy, isImportant, isResubmitted, submittedOn, pdfAttachment, content) 
@@ -297,7 +316,11 @@ app.post("/api/drafts/submit", (req, res) => {
                  ON DUPLICATE KEY UPDATE status='Pending', pdfAttachment=?, isResubmitted=?, submittedOn=?, content=?`;
 
     db.query(sql, [id, deedType, clientName, clientPhone, createdBy, isImportant, isResubmitted, submittedOnJson, pdfUrl, content, pdfUrl, isResubmitted, submittedOnJson, content], (err) => {
-        if (err) return res.status(500).json({ message: "Error saving draft", error: err.message });
+        if (err) {
+            console.error("❌ DB error on draft submit:", err.message);
+            return res.status(500).json({ message: "Error saving draft", error: err.message });
+        }
+        console.log("✅ Draft saved to DB, pdfAttachment =", pdfUrl);
         res.json({ message: "Draft Submitted", pdfUrl });
     });
 });

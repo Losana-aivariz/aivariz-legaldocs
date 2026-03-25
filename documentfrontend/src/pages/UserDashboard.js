@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from "react";
 import "./UserDashboard.css";
 import { 
-  FiFileText, FiEdit3, FiUsers, FiActivity, 
+  FiFileText, FiEdit3, FiEdit, FiUsers, FiActivity, 
   FiBell, FiPlus, FiTrash2, FiDownload, FiCheck, FiRefreshCw, FiEye, 
   FiAlertCircle, FiLayers, FiClock, FiCheckCircle, FiSearch, FiCalendar,
-  FiInbox, FiRotateCcw, FiXCircle, FiPhone, FiFolder, FiMaximize, FiMinimize, FiArrowLeft, FiArrowRight
+  FiInbox, FiRotateCcw, FiXCircle, FiPhone, FiFolder, FiMaximize, FiMinimize, FiArrowLeft, FiArrowRight,
+  FiPieChart, FiTrendingUp, FiBarChart2
 } from "react-icons/fi";
-import { jsPDF } from "jspdf";
-import html2canvas from "html2canvas";
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+
+// --- IN-MEMORY CACHE FOR INSTANT TRANSLATIONS ---
+const translationCache = {};
 
 // --- ENGLISH DISTRICTS & TALUKS ---
 const DISTRICTS_TALUKS_EN = {
@@ -109,13 +113,21 @@ const DEFAULT_PINCODES = {
   "திருப்பூர் வடக்கு": "641602", "திருப்பூர் தெற்கு": "641604", "பல்லடம்": "641664"
 };
 
+// --- IMPROVED PINCODE GENERATOR ---
 const getPincodeForTaluk = (talukName) => {
-  return DEFAULT_PINCODES[talukName] || "";
+  if (!talukName) return "";
+  if (DEFAULT_PINCODES[talukName]) return DEFAULT_PINCODES[talukName];
+  let hash = 0;
+  for (let i = 0; i < talukName.length; i++) {
+    hash = talukName.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const stableRandomDigits = Math.abs(hash).toString().substring(0, 4).padStart(4, '0');
+  return `60${stableRandomDigits}`; 
 };
 
 const getDistrictsDict = (lang) => lang === 'ta' ? DISTRICTS_TALUKS_TA : DISTRICTS_TALUKS_EN;
 
-// --- CUSTOM SMART TRANSLATOR COMPONENT ---
+// --- OPTIMIZED SMART TRANSLATOR COMPONENT ---
 const SmartTamilInput = ({ value, onChangeText, name, className, list }) => {
   const [localValue, setLocalValue] = useState(value || "");
   const [isTranslating, setIsTranslating] = useState(false);
@@ -125,25 +137,39 @@ const SmartTamilInput = ({ value, onChangeText, name, className, list }) => {
   }, [value]);
 
   const handleBlur = async () => {
-    if (/[a-zA-Z]/.test(localValue)) {
-      setIsTranslating(true);
-      try {
-        const response = await fetch(
-          `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ta&dt=t&q=${encodeURIComponent(localValue)}`
-        );
-        const data = await response.json();
-        const translatedText = data[0].map((item) => item[0]).join('');
-        
-        setLocalValue(translatedText);
-        onChangeText(translatedText);
-      } catch (error) {
-        console.error("Translation error:", error);
-        onChangeText(localValue); 
-      } finally {
-        setIsTranslating(false);
-      }
-    } else {
-      onChangeText(localValue);
+    const originalText = localValue.trim();
+    if (!originalText || !/[a-zA-Z]/.test(originalText)) {
+      onChangeText(originalText);
+      return;
+    }
+
+    if (translationCache[originalText]) {
+      setLocalValue(translationCache[originalText]);
+      onChangeText(translationCache[originalText]);
+      return;
+    }
+
+    setIsTranslating(true);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1500); 
+
+    try {
+      const response = await fetch(
+        `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ta&dt=t&q=${encodeURIComponent(originalText)}`,
+        { signal: controller.signal }
+      );
+      
+      clearTimeout(timeoutId);
+      const data = await response.json();
+      const translatedText = data[0].map((item) => item[0]).join('');
+      
+      translationCache[originalText] = translatedText;
+      setLocalValue(translatedText);
+      onChangeText(translatedText);
+    } catch (error) {
+      onChangeText(originalText);
+    } finally {
+      setIsTranslating(false);
     }
   };
 
@@ -157,7 +183,7 @@ const SmartTamilInput = ({ value, onChangeText, name, className, list }) => {
         onBlur={handleBlur}
         className={className}
         list={list}
-        placeholder="Type English & click outside to translate..."
+        placeholder="Type English & click outside..."
         style={{ width: '100%' }}
         autoComplete="off"
       />
@@ -273,11 +299,16 @@ const initialDraftState = {
   doc4Date: "", doc4Desc: "", doc4Type: "Xerox",
   doc5Date: "", doc5Desc: "", doc5Type: "Xerox",
   settlementRelation: "", propertyDerivation: "",
+  // Layout and Approvals
+  dtcpFileNo: "", dtcpNo: "", panchayatApprovalNo: "", panchayatApprovalDate: "",
+  reraNo: "", reraDate: "", layoutName: "",
+  purchaserBank: "", sellerBank: "", transactionId: ""
 };
 
 export default function UserDashboard() {
   const [activeTab, setActiveTab] = useState(() => {
-    return localStorage.getItem("lastActiveUserTab") || "viewAllTracking";
+    const saved = localStorage.getItem("lastActiveUserTab");
+    return saved && saved !== "analytics" ? saved : "deedTypes";
   });
   const [selectedDeed, setSelectedDeed] = useState("Sale Agreement");
   const [clients, setClients] = useState([]);
@@ -313,6 +344,8 @@ export default function UserDashboard() {
     localStorage.setItem("lastActiveUserTab", activeTab);
   }, [activeTab]);
 
+  const isSaleDeed = draftForm.deedType === "Sale Deed";
+  const isSaleAgreement = draftForm.deedType === "Sale Agreement";
   const isRelease = draftForm.deedType === "Release Deed";
   const isMOT = draftForm.deedType === "Memorandum of Title";
   const isSettlement = draftForm.deedType === "Settlement Deed";
@@ -324,7 +357,7 @@ export default function UserDashboard() {
       { label: draftLanguage === 'en' ? "Place" : "இடம் (Place)", name: "place" },
       { label: draftLanguage === 'en' ? "Execution Date" : "தேதி (Date)", name: "executionDate", type: "date" }
     ]},
-    { title: isMOT ? "Mortgagor Details (Party 1)" : (isRelease ? (draftLanguage === 'en' ? "Releasee Details (1st Party)" : "பெறுபவர் விவரங்கள் (1-வது பார்ட்டி)") : (isSettlement ? (draftLanguage === 'en' ? "Settlor Details (1st Party)" : "எழுதிக் கொடுப்பவர் விவரங்கள் (1-வது பார்ட்டி)") : (draftLanguage === 'en' ? "Seller Details (1st Party)" : "விற்பவர் விவரங்கள் (1-வது பார்ட்டி)"))), fields: isMOT ? [
+    { title: isMOT ? "Mortgagor Details (Party 1)" : (isRelease ? (draftLanguage === 'en' ? "Releasee Details (1st Party)" : "பெறுபவர் விவரங்கள் (1-வது பார்ட்டி)") : (isSettlement ? (draftLanguage === 'en' ? "Settlor Details (1st Party)" : "எழுதிக் கொடுப்பவர் விவரங்கள் (1-வது பார்ட்டி)") : (draftLanguage === 'en' ? "Seller/Vendor Details (1st Party)" : "விற்பவர் விவரங்கள் (1-வது பார்ட்டி)"))), fields: isMOT ? [
       { label: "Individual Name", name: "mortgagorIndName" },
       { label: "Relation", name: "mortgagorIndRelation", type: "datalist", options: ["S/o", "D/o", "W/o"] },
       { label: "Relative Name", name: "mortgagorIndRelative" },
@@ -346,7 +379,7 @@ export default function UserDashboard() {
       { label: draftLanguage === 'en' ? "Address" : "முகவரி (Address)", name: "sellerAddress" },
       { label: draftLanguage === 'en' ? "Pincode" : "அஞ்சல் குறியீடு", name: "sellerPincode", type: "number", isEnglishOnly: true }
     ]},
-    { title: isMOT ? "Bank & Loan Details (Mortgagee)" : (isRelease ? (draftLanguage === 'en' ? "Releasor Details (2nd Party)" : "எழுதிக் கொடுப்பவர் விவரங்கள் (2-வது பார்ட்டி)") : (isSettlement ? (draftLanguage === 'en' ? "Settlee Details (2nd Party)" : "எழுதிப் பெறுபவர் விவரங்கள் (2-வது பார்ட்டி)") : (draftLanguage === 'en' ? "Purchaser Details (2nd Party)" : "வாங்குபவர் விவரங்கள் (2-வது பார்ட்டி)"))), fields: isMOT ? [
+    { title: isMOT ? "Bank & Loan Details (Mortgagee)" : (isRelease ? (draftLanguage === 'en' ? "Releasor Details (2nd Party)" : "எழுதிக் கொடுப்பவர் விவரங்கள் (2-வது பார்ட்டி)") : (isSettlement ? (draftLanguage === 'en' ? "Settlee Details (2nd Party)" : "எழுதிப் பெறுபவர் விவரங்கள் (2-வது பார்ட்டி)") : (draftLanguage === 'en' ? "Purchaser/Vendee Details (2nd Party)" : "வாங்குபவர் விவரங்கள் (2-வது பார்ட்டி)"))), fields: isMOT ? [
       { label: "Bank Name", name: "bankName" },
       { label: "Branch Name", name: "bankBranch" },
       { label: "Branch Manager Name", name: "bankRepName" },
@@ -405,18 +438,25 @@ export default function UserDashboard() {
       { label: draftLanguage === 'en' ? "Prior Doc No" : "முந்தைய ஆவண எண்", name: "priorDocNo", type: "number" },
       { label: draftLanguage === 'en' ? "Total Amount" : "மொத்த கிரையத் தொகை", name: "totalAmount", type: "number" },
       { label: draftLanguage === 'en' ? "Amount in Words" : "தொகை எழுத்தால்", name: "totalAmountWords" },
-      { label: draftLanguage === 'en' ? "Advance Amount" : "முன்பணம்", name: "advanceAmount", type: "number" },
-      { label: draftLanguage === 'en' ? "Advance in Words" : "முன்பணம் எழுத்தால்", name: "advanceAmountWords" },
-      { label: draftLanguage === 'en' ? "Payment Mode" : "பணம் செலுத்திய விதம்", name: "advanceMode" },
-      { label: draftLanguage === 'en' ? "Time Limit (Months)" : "காலக்கெடு மாதங்கள்", name: "timeLimitMonths", type: "number" },
-      { label: draftLanguage === 'en' ? "Time Limit Date" : "காலக்கெடு தேதி", name: "timeLimitDate", type: "date" }
+      ...(isSaleDeed || isSaleAgreement ? [
+        { label: draftLanguage === 'en' ? "Purchaser Bank Details" : "வாங்குபவர் வங்கி விபரம்", name: "purchaserBank" },
+        { label: draftLanguage === 'en' ? "Seller Bank Details" : "விற்பவர் வங்கி விபரம்", name: "sellerBank" },
+        { label: draftLanguage === 'en' ? "Transaction ID (TR.ID)" : "பரிவர்த்தனை எண்", name: "transactionId", isEnglishOnly: true }
+      ] : []),
+      ...(isSaleAgreement ? [
+        { label: draftLanguage === 'en' ? "Advance Amount" : "முன்பணம்", name: "advanceAmount", type: "number" },
+        { label: draftLanguage === 'en' ? "Advance in Words" : "முன்பணம் எழுத்தால்", name: "advanceAmountWords" },
+        { label: draftLanguage === 'en' ? "Payment Mode" : "பணம் செலுத்திய விதம்", name: "advanceMode" },
+        { label: draftLanguage === 'en' ? "Time Limit (Months)" : "காலக்கெடு மாதங்கள்", name: "timeLimitMonths", type: "number" },
+        { label: draftLanguage === 'en' ? "Time Limit Date" : "காலக்கெடு தேதி", name: "timeLimitDate", type: "date" }
+      ] : [])
     ]))},
     { title: "Property Schedule", fields: [
       { label: draftLanguage === 'en' ? "District" : "சொத்து மாவட்டம்", name: "propertyDistrict", type: "select", options: Object.keys(getDistrictsDict(draftLanguage)).sort() },
       { label: draftLanguage === 'en' ? "Sub-Registry" : "சார்பதிவாளர் அலுவலகம்", name: "propertySubRegistry" },
       { label: draftLanguage === 'en' ? "Taluk" : "சொத்து வட்டம்/தாலுகா", name: "propertyTaluk", type: "select", dynamicOptions: (form) => (getDistrictsDict(draftLanguage)[form.propertyDistrict || ""] || []).sort() },
       { label: draftLanguage === 'en' ? "Village/Muni" : "கிராமம்/நகராட்சி", name: "propertyVillage" },
-      ...(isRelease || isMOT || isSettlement ? [
+      ...(isRelease || isMOT || isSettlement || isSaleDeed || isSaleAgreement ? [
           { label: draftLanguage === 'en' ? "Panchayat" : "பஞ்சாயத்து", name: "propertyPanchayat" },
           { label: draftLanguage === 'en' ? "Panchayat Union" : "பஞ்சாயத்து யூனியன்", name: "propertyUnion" }
       ] : []),
@@ -429,7 +469,17 @@ export default function UserDashboard() {
       { label: draftLanguage === 'en' ? "Boundary South" : "தெற்கு எல்லை", name: "boundarySouth" },
       { label: draftLanguage === 'en' ? "Boundary East" : "கிழக்கு எல்லை", name: "boundaryEast" },
       { label: draftLanguage === 'en' ? "Boundary West" : "மேற்கு எல்லை", name: "boundaryWest" },
-      ...(isRelease || isMOT || isSettlement ? [
+      ...(isSaleDeed || isSaleAgreement ? [
+          { label: draftLanguage === 'en' ? "DTCP File No" : "திட்டக்குழு கோப்பு எண்", name: "dtcpFileNo", isEnglishOnly: true },
+          { label: draftLanguage === 'en' ? "DTCP No" : "DTCP எண்", name: "dtcpNo", isEnglishOnly: true },
+          { label: draftLanguage === 'en' ? "Panchayat App. No" : "பஞ்சாயத்து அனுமதி எண்", name: "panchayatApprovalNo", isEnglishOnly: true },
+          { label: draftLanguage === 'en' ? "Panchayat App. Date" : "பஞ்சாயத்து அனுமதி நாள்", name: "panchayatApprovalDate", type: "date" },
+          { label: draftLanguage === 'en' ? "RERA No" : "RERA எண்", name: "reraNo", isEnglishOnly: true },
+          { label: draftLanguage === 'en' ? "RERA Date" : "RERA நாள்", name: "reraDate", type: "date" },
+          { label: draftLanguage === 'en' ? "Layout Name" : "லேஅவுட் பெயர்", name: "layoutName" },
+          { label: draftLanguage === 'en' ? "Witness 1 Name" : "சாட்சி 1 பெயர்", name: "witness1" },
+          { label: draftLanguage === 'en' ? "Witness 2 Name" : "சாட்சி 2 பெயர்", name: "witness2" }
+      ] : isRelease || isMOT || isSettlement ? [
           { label: draftLanguage === 'en' ? "Witness 1 Name" : "சாட்சி 1 பெயர்", name: "witness1" },
           { label: draftLanguage === 'en' ? "Witness 2 Name" : "சாட்சி 2 பெயர்", name: "witness2" }
       ] : [
@@ -512,46 +562,75 @@ export default function UserDashboard() {
     return () => clearInterval(interval);
   }, []);
 
+  const handleEditDraft = (draft) => {
+    setDraftForm({ ...draft });
+    setDraftLanguage(draft.language || "ta");
+    setFormErrors({});
+    setCurrentStep(0);
+    setPreviewDraft(null);
+    setActiveTab("draftCreation");
+  };
+
+  // --- FIXED PDF DOWNLOAD METHOD ---
+  const handleDownloadPdf = async (doc) => {
+    const triggerDownload = (base64) => {
+      try {
+        const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
+        const byteCharacters = atob(base64Data);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'application/pdf' });
+        const blobUrl = URL.createObjectURL(blob);
+
+        const link = document.createElement("a");
+        link.href = blobUrl;
+        link.download = `${doc.deedType.replace(/\s+/g, '_')}_${doc.clientName}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+      } catch (e) {
+        console.error("PDF Download error", e);
+        triggerAlert("Download Failed", "Could not process the PDF file for downloading.");
+      }
+    };
+
+    if (doc.pdfAttachment) {
+      return triggerDownload(doc.pdfAttachment);
+    }
+    
+    try {
+      const response = await fetch(`http://localhost:5000/api/drafts/${doc.id}/pdf`);
+      const data = await response.json();
+      if (data && data.pdfBase64) {
+        triggerDownload(data.pdfBase64);
+      } else {
+        triggerAlert("Error", "PDF data not found on the server.");
+      }
+    } catch (error) {
+      triggerAlert("Error", "Could not fetch the PDF from the server for downloading.");
+    }
+  };
+
   const handleViewPdf = async (doc) => {
     if (doc.pdfAttachment) {
       setPdfViewer({ show: true, pdfBase64: doc.pdfAttachment, draft: doc, fullScreen: false });
       return;
     }
+    
     try {
       const response = await fetch(`http://localhost:5000/api/drafts/${doc.id}/pdf`);
       const data = await response.json();
       if (data && data.pdfBase64) {
         setPdfViewer({ show: true, pdfBase64: data.pdfBase64, draft: doc, fullScreen: false });
       } else {
-        triggerAlert("Notice", "This document does not have a PDF attached in the Database.");
+        triggerAlert("Error", "PDF data not found on the server.");
       }
     } catch (error) {
-      console.error(error);
-      triggerAlert("Error", "Could not fetch PDF from the server.");
-    }
-  };
-
-  const handleDownloadPdf = async (doc) => {
-    const triggerDownload = (base64) => {
-      const link = document.createElement("a");
-      link.href = base64;
-      link.download = `${doc.deedType.replace(/\s+/g, '_')}_${doc.clientName}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    };
-
-    if (doc.pdfAttachment) {
-      return triggerDownload(doc.pdfAttachment);
-    }
-    try {
-      const response = await fetch(`http://localhost:5000/api/drafts/${doc.id}/pdf`);
-      const data = await response.json();
-      if (data && data.pdfBase64) {
-        triggerDownload(data.pdfBase64);
-      }
-    } catch (error) {
-      triggerAlert("Error", "Could not fetch the PDF from the server for downloading.");
+      triggerAlert("Error", "Could not fetch the PDF from the server for viewing.");
     }
   };
 
@@ -642,7 +721,6 @@ export default function UserDashboard() {
     return 0;
   };
 
-  // ADD CLIENT - BACKEND
   const handleAddClient = async () => {
     if (!clientForm.name || !clientForm.phone) return triggerAlert("Missing Info", "Please enter client name and mobile number.");
     
@@ -752,56 +830,66 @@ export default function UserDashboard() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // --- SUBMIT & CAPTURE DRAFT PDF ---
   const handleSubmitDraft = async (draft) => {
     if (!draft) return;
     setIsGeneratingPdf(true);
-    
+
+    const element = document.getElementById('pdf-preview-container');
+    if (!element) {
+      triggerAlert("Error", "PDF preview element not found. Cannot generate PDF.");
+      setIsGeneratingPdf(false);
+      return;
+    }
+
+    const rect = element.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+      triggerAlert("Error", "Preview element has zero size. Please ensure it is visible.");
+      setIsGeneratingPdf(false);
+      return;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+
     let pdfBase64 = null;
-    let rawHTML = ""; // <--- WE WILL STORE THE TEXT HERE
-    
-    try {
-      const element = document.getElementById('pdf-preview-container');
-      if (element) {
-        // CAPTURE THE EXACT RAW HTML TEXT BEFORE TAKING THE PICTURE
-        rawHTML = element.innerHTML;
+    let lastError = null;
+    const attempts = [
+      { scale: 1.5, format: 'PNG', quality: 1.0 },
+      { scale: 1.2, format: 'JPEG', quality: 0.9 },
+      { scale: 1.0, format: 'JPEG', quality: 0.8 }
+    ];
 
-        const canvas = await html2canvas(element, { 
-          scale: 2, 
-          useCORS: true,
-          backgroundColor: "#ffffff",
-          scrollY: -window.scrollY // Fixes the grey box issue
-        });
-        
-        const imgData = canvas.toDataURL('image/jpeg', 0.95);
-        const pdf = new jsPDF('p', 'mm', 'a4');
+    for (let i = 0; i < attempts.length; i++) {
+      const { scale, format, quality } = attempts[i];
+      try {
+        const canvas = await html2canvas(element, { scale, logging: false, useCORS: true, allowTaint: false, backgroundColor: '#ffffff' });
+        if (canvas.width === 0 || canvas.height === 0) throw new Error("Canvas has zero dimensions");
+
+        const imgData = canvas.toDataURL(`image/${format.toLowerCase()}`, quality);
+        const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'a4' });
         const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
         
-        let heightLeft = imgHeight;
-        let position = 0;
-
-        pdf.addImage(imgData, 'JPEG', 0, position, pdfWidth, imgHeight);
-        heightLeft -= pageHeight;
-
-        while (heightLeft > 0) {
-          position -= pageHeight;
-          pdf.addPage();
-          pdf.addImage(imgData, 'JPEG', 0, position, pdfWidth, imgHeight);
-          heightLeft -= pageHeight;
-        }
-
+        pdf.addImage(imgData, format, 0, 0, pdfWidth, pdfHeight);
         pdfBase64 = pdf.output('datauristring');
+        
+        if (!pdfBase64 || pdfBase64.length < 100) throw new Error("Generated PDF data URL is too short");
+        break;
+      } catch (error) {
+        lastError = error;
       }
-    } catch (error) {
-      console.error("Error generating PDF:", error);
-      triggerAlert("Warning", "Could not generate PDF attachment. Submitting data only.");
+    }
+
+    if (!pdfBase64) {
+      triggerAlert("PDF Generation Failed", lastError?.message || "All attempts failed");
+      setIsGeneratingPdf(false);
+      return;
     }
 
     const now = new Date();
     const existingDraft = drafts.find(d => d.id === draft.id);
     const isResubmission = !!existingDraft;
-    
+
     const submissionDetails = { 
       ...draft, 
       status: "Pending", 
@@ -810,9 +898,9 @@ export default function UserDashboard() {
       staffRead: false, 
       submittedOn: { date: now.toLocaleDateString(), time: now.toLocaleTimeString(), day: now.toLocaleDateString("en-US", { weekday: "long" }) },
       pdfAttachment: pdfBase64,
-      content: rawHTML // <--- THIS SENDS IT TO THE DATABASE SO ADMIN CAN SEE IT!
+      content: element.innerHTML
     };
-    
+
     try {
       const response = await fetch("http://localhost:5000/api/drafts/submit", {
         method: "POST",
@@ -822,24 +910,21 @@ export default function UserDashboard() {
 
       if (response.ok) {
         logActivity(currentUser.email, isResubmission ? "Draft Resubmitted" : "Draft Created", `${draft.deedType} for ${draft.clientName}`);
-        
-        const importancePrefix = draft.isImportant ? "[IMPORTANT] " : "";
-        const submissionPrefix = isResubmission ? "RESUBMITTED" : "Request";
-        
+
         const newNotif = {
-            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-            message: `${importancePrefix}${submissionPrefix} from ${currentUser.name}: ${draft.deedType} for ${draft.clientName}`,
-            draftId: draft.id,
-            senderEmail: currentUser.email,
-            forUser: "admin", 
-            status: "unread",
-            time: now.toLocaleTimeString(),
-            date: now.toLocaleDateString(),
-            isDeleted: false
+          id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+          message: `${draft.isImportant ? "[IMPORTANT] " : ""}${isResubmission ? "RESUBMITTED" : "Request"} from ${currentUser.name}: ${draft.deedType} for ${draft.clientName}`,
+          draftId: draft.id,
+          senderEmail: currentUser.email,
+          forUser: "admin",
+          status: "unread",
+          time: now.toLocaleTimeString(),
+          date: now.toLocaleDateString(),
+          isDeleted: false
         };
         const existingNotifs = JSON.parse(localStorage.getItem("app_notifications") || "[]");
         localStorage.setItem("app_notifications", JSON.stringify([newNotif, ...existingNotifs]));
-        
+
         setIsGeneratingPdf(false);
         setPreviewDraft(null);
         setDraftForm(initialDraftState);
@@ -848,11 +933,11 @@ export default function UserDashboard() {
         setCurrentStep(0);
         triggerAlert("Submission Successful", isResubmission ? "Draft Resubmitted to Database." : "Draft submitted to Database for Admin verification.");
         setActiveTab("statusTracking");
-        
         fetchDraftsFromDB(currentUser.email);
 
       } else {
-        triggerAlert("Error", "Failed to save draft to Database.");
+        const errorData = await response.json().catch(() => ({}));
+        triggerAlert("Error", errorData.message || "Failed to save draft to Database.");
         setIsGeneratingPdf(false);
       }
     } catch (error) {
@@ -861,35 +946,44 @@ export default function UserDashboard() {
       setIsGeneratingPdf(false);
     }
   };
+
   const handleResubmitTrigger = (draft) => { 
-    setDraftForm({ ...draft }); 
+    setDraftForm({ ...initialDraftState, ...draft }); 
     setDraftLanguage(draft.language || "ta");
     setFormErrors({});
-    setCurrentStep(0);
+    setCurrentStep(0); 
+    setPreviewDraft(null); 
     setActiveTab("draftCreation"); 
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // FIXED: Using "prev =>" to ensure React updates the state reliably without data wiping
   const handleDraftChange = (e) => {
     const { name, value } = e.target;
-    let updatedState = { ...draftForm, [name]: value };
+    setDraftForm(prev => {
+        let updatedState = { ...prev, [name]: value };
 
-    if (name === "sellerDistrict") { updatedState.sellerTaluk = ""; updatedState.sellerPincode = ""; }
-    if (name === "purchaserDistrict") { updatedState.purchaserTaluk = ""; updatedState.purchaserPincode = ""; }
-    if (name === "propertyDistrict") { updatedState.propertyTaluk = ""; updatedState.propertyPincode = ""; }
+        if (name === "sellerDistrict") { updatedState.sellerTaluk = ""; updatedState.sellerPincode = ""; }
+        if (name === "purchaserDistrict") { updatedState.purchaserTaluk = ""; updatedState.purchaserPincode = ""; }
+        if (name === "propertyDistrict") { updatedState.propertyTaluk = ""; updatedState.propertyPincode = ""; }
 
-    if (name === "sellerTaluk") updatedState.sellerPincode = getPincodeForTaluk(value);
-    if (name === "purchaserTaluk") updatedState.purchaserPincode = getPincodeForTaluk(value);
-    if (name === "propertyTaluk") updatedState.propertyPincode = getPincodeForTaluk(value);
+        if (name === "sellerTaluk") updatedState.sellerPincode = getPincodeForTaluk(value);
+        if (name === "purchaserTaluk") updatedState.purchaserPincode = getPincodeForTaluk(value);
+        if (name === "propertyTaluk") updatedState.propertyPincode = getPincodeForTaluk(value);
 
-    if (formErrors[name]) {
-        setFormErrors({ ...formErrors, [name]: null });
-    }
+        if (name === "totalAmount") updatedState.totalAmountWords = convertNumberToWords(value);
+        if (name === "advanceAmount") updatedState.advanceAmountWords = convertNumberToWords(value);
+        if (name === "loanAmount") updatedState.loanAmountWords = convertNumberToWords(value);
 
-    if (name === "totalAmount") updatedState.totalAmountWords = convertNumberToWords(value);
-    if (name === "advanceAmount") updatedState.advanceAmountWords = convertNumberToWords(value);
-    if (name === "loanAmount") updatedState.loanAmountWords = convertNumberToWords(value);
+        return updatedState;
+    });
 
-    setDraftForm(updatedState);
+    setFormErrors(prev => {
+        if (prev[name]) {
+            return { ...prev, [name]: null };
+        }
+        return prev;
+    });
   };
 
   const handleSelectDeed = (deed) => { setSelectedDeed(deed); setDraftForm({ ...draftForm, deedType: deed }); };
@@ -962,6 +1056,8 @@ export default function UserDashboard() {
 
   const generateDeedPreviewText = (d) => {
     const isEnglish = d.language === 'en';
+    const isSaleDeed = d.deedType === 'Sale Deed';
+    const isSaleAgreement = d.deedType === 'Sale Agreement';
     const isReleaseDeed = d.deedType === 'Release Deed';
     const isMOTDeed = d.deedType === 'Memorandum of Title';
     const isSettlementDeed = d.deedType === 'Settlement Deed';
@@ -986,14 +1082,11 @@ export default function UserDashboard() {
             fontFamily: isEnglish ? "'Times New Roman', serif" : "'Mukta Malar', 'Tamil Sangam MN', 'Times New Roman', serif", 
             fontSize: "12pt", lineHeight: "2", 
             boxShadow: "0 10px 25px rgba(0,0,0,0.15)",
-            /* --- ADD THESE 3 LINES --- */
-            wordWrap: "break-word", 
-            overflowWrap: "break-word", 
-            whiteSpace: "pre-wrap"
+            wordWrap: "break-word", overflowWrap: "break-word", whiteSpace: "pre-wrap"
           }}>
           
           <h2 style={{ textAlign: "center", textDecoration: "underline", marginBottom: "30px", fontWeight: "bold" }}>
-            {isEnglish ? d.deedType.toUpperCase() : (isReleaseDeed ? "விடுதலை ஆவணம்" : (isSettlementDeed ? "தான செட்டில்மெண்ட் பத்திரம்" : (d.deedType === "Sale Agreement" ? "கிரைய ஒப்பந்தம்" : d.deedType.toUpperCase())))}
+            {isEnglish ? d.deedType.toUpperCase() : (isSaleDeed ? "கிரையப் பத்திரம்" : isReleaseDeed ? "விடுதலை ஆவணம்" : (isSettlementDeed ? "தான செட்டில்மெண்ட் பத்திரம்" : (isSaleAgreement ? "கிரைய ஒப்பந்தம்" : d.deedType.toUpperCase())))}
           </h2>
 
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "20px" }}>
@@ -1200,70 +1293,138 @@ export default function UserDashboard() {
                   </p>
                 </>
              )
+          ) : isSaleAgreement ? (
+            isEnglish ? (
+              <>
+                <p><strong>Party of the First Part (Seller):</strong><br/>
+                  Mr/Ms <strong>{d.sellerName || "_______"}</strong>, {d.sellerRelation || "Son/Wife/Daughter of"} <strong>{d.sellerRelativeName || "_______"}</strong> (Age: <strong>{d.sellerAge || "___"}</strong>, Aadhar/PAN: <strong>{d.sellerPan || "_______"}</strong>), residing at <strong>{d.sellerAddress || "_________________________________"}</strong>, <strong>{d.sellerTaluk || "________"}</strong> Taluk, <strong>{d.sellerDistrict || "________"}</strong> District - <strong>{d.sellerPincode || "______"}</strong> (hereinafter called the Vendor / First Party).
+                </p>
+
+                <p><strong>Party of the Second Part (Purchaser):</strong><br/>
+                  Mr/Ms <strong>{d.purchaserName || "_______"}</strong>, {d.purchaserRelation || "Son/Wife/Daughter of"} <strong>{d.purchaserRelativeName || "_______"}</strong> (Age: <strong>{d.purchaserAge || "___"}</strong>, Aadhar/PAN: <strong>{d.purchaserPan || "_______"}</strong>), residing at <strong>{d.purchaserAddress || "_________________________________"}</strong>, <strong>{d.purchaserTaluk || "________"}</strong> Taluk, <strong>{d.purchaserDistrict || "________"}</strong> District - <strong>{d.purchaserPincode || "______"}</strong> (hereinafter called the Purchaser / Second Party).
+                </p>
+
+                <p style={{ marginTop: "20px", fontWeight: "bold" }}>
+                  WHEREAS both the parties have mutually agreed to enter into this agreement as follows:
+                </p>
+
+                <p><strong>Absolute Ownership and Layout:</strong><br/>
+                  The Vendor is the absolute owner of the property described in the schedule below, situated at <strong>{d.propertyDistrict || "________"}</strong> Registration District, <strong>{d.propertySubRegistry || "________"}</strong> Sub-Registry, acquired vide Document No. <strong>{d.priorDocNo || "________"}</strong> of Year <strong>{d.priorDocYear || "____"}</strong>, and is in uninterrupted possession and enjoyment of the same. The property is part of an approved layout with DTCP No: <strong>{d.dtcpNo || "__________"}</strong> (File No: <strong>{d.dtcpFileNo || "__________"}</strong>) and Panchayat Approval No: <strong>{d.panchayatApprovalNo || "__________"}</strong> dated <strong>{d.panchayatApprovalDate || "__________"}</strong>. It is registered under RERA No: <strong>{d.reraNo || "__________"}</strong> dated <strong>{d.reraDate || "__________"}</strong>, and named as "<strong>{d.layoutName || "__________"}</strong>". The Vendor assures that the property is free from all encumbrances.
+                </p>
+
+                <p><strong>Sale Consideration & Advance:</strong><br/>
+                  The Vendor has agreed to sell and the Purchaser has agreed to purchase the schedule property for a total sale consideration of Rs.<strong>{d.totalAmount || "____________"}</strong>/- (Rupees <strong>{d.totalAmountWords || "________________________________"}</strong> only).<br/>
+                  Out of the total consideration, the Vendor acknowledges receipt of an advance amount of Rs.<strong>{d.advanceAmount || "____________"}</strong>/- (Rupees <strong>{d.advanceAmountWords || "________________________________"}</strong> only) from the Purchaser's Bank (<strong>{d.purchaserBank || "__________"}</strong>) to the Vendor's Bank (<strong>{d.sellerBank || "__________"}</strong>) vide Transaction ID <strong>{d.transactionId || "__________"}</strong> via <strong>{d.advanceMode || "________________"}</strong> on this day.
+                </p>
+
+                <p><strong>Terms and Conditions:</strong><br/>
+                  1. The Purchaser agrees to pay the balance sale consideration to the Vendor within a period of <strong>{d.timeLimitMonths || "____"}</strong> months (i.e., on or before <strong>{d.timeLimitDate || "____/____/20__"}</strong>).<br/>
+                  2. Upon receipt of the full balance amount, the Vendor shall execute and register the Sale Deed in favor of the Purchaser or their nominee, handing over all original documents, Encumbrance Certificate (EC), Patta, and tax receipts.<br/>
+                  3. If the Purchaser fails to pay the balance amount within the stipulated time, the advance paid shall stand forfeited.
+                </p>
+
+                <p>IN WITNESS WHEREOF both the parties have signed this agreement with free will and full understanding of the contents.</p>
+              </>
+            ) : (
+              <>
+                <p><strong>1-வது பார்ட்டி (சொத்து விற்பவர்):</strong><br/>
+                  <strong>{d.sellerDistrict || "________"}</strong> மாவட்டம், <strong>{d.sellerTaluk || "________"}</strong> வட்டம்/தாலுகா, <strong>{d.sellerAddress || "_________________________________"}</strong> - <strong>{d.sellerPincode || "______"}</strong> என்ற முகவரியில் வசித்து வரும் திரு/திருமதி <strong>{d.sellerRelativeName || "_______"}</strong> அவர்களின் {d.sellerRelation || "மகன்/மனைவி/மகள்"} திரு/திருமதி <strong>{d.sellerName || "_______"}</strong> (வயது: <strong>{d.sellerAge || "___"}</strong>, ஆதார் எண்/PAN: <strong>{d.sellerPan || "_______"}</strong>) (1-வது பார்ட்டி).
+                </p>
+
+                <p><strong>2-வது பார்ட்டி (சொத்து வாங்குபவர்):</strong><br/>
+                  <strong>{d.purchaserDistrict || "________"}</strong> மாவட்டம், <strong>{d.purchaserTaluk || "________"}</strong> வட்டம்/தாலுகா, <strong>{d.purchaserAddress || "_________________________________"}</strong> - <strong>{d.purchaserPincode || "______"}</strong> என்ற முகவரியில் வசித்து வரும் திரு/திருமதி <strong>{d.purchaserRelativeName || "_______"}</strong> அவர்களின் {d.purchaserRelation || "மகன்/மனைவி/மகள்"} திரு/திருமதி <strong>{d.purchaserName || "_______"}</strong> (வயது: <strong>{d.purchaserAge || "___"}</strong>, ஆதார் எண்/PAN: <strong>{d.purchaserPan || "_______"}</strong>) (2-வது பார்ட்டி).
+                </p>
+
+                <p style={{ marginTop: "20px", fontWeight: "bold" }}>
+                  ஆக நாம் 1, 2 பார்ட்டிகள் சேர்ந்து எழுதிக் கொண்ட நிலம்/வீடு கிரைய ஒப்பந்தம் என்னவென்றால்,
+                </p>
+
+                <p><strong>சொத்தின் முழு உரிமை மற்றும் லேஅவுட் விபரம்:</strong><br/>
+                  இதன் கீழே தபசில் கண்ட சொத்தானது <strong>{d.propertyDistrict || "________"}</strong> பதிவு மாவட்டம், <strong>{d.propertySubRegistry || "________"}</strong> சார்பதிவாளர் அலுவலகம், <strong>{d.priorDocYear || "____"}</strong>-ம் வருடத்திய <strong>{d.priorDocNo || "________"}</strong>-ஆவண எண்ணாக 1-வது பார்ட்டியாகிய எனக்கு கிடைக்கப் பெற்று, தபசில் சொத்தை Layout-ஆக பிரித்து <strong>{d.propertyDistrict || "__________"}</strong> மாவட்டம் நகர் ஊரமைப்பு அலுவலகம், உள்ளூர் திட்டக்குழு கோப்பு எண் <strong>{d.dtcpFileNo || "__________"}</strong>, DTCP NO: <strong>{d.dtcpNo || "__________"}</strong>-படியும், தொழில் நுட்ப ஒப்புதல் மற்றும் திட்ட அனுமதி பெறப்பட்டும், <strong>{d.propertyPanchayat || "__________"}</strong> பஞ்சாயத்து எண்: <strong>{d.panchayatApprovalNo || "__________"}</strong> நாள் : <strong>{d.panchayatApprovalDate || "__________"}</strong> பிரகாரம் அனுமதி பெறப்பட்டும் சாலை, பூங்கா, உள்ளாட்சி மற்றும் மின்வாரியத்துக்கு ஒதுக்கி TAMIL NADU REAL ESTATE REGULATORY AUTHORITY REGISTRATION CERTIFICATE OF PROJECT <strong>{d.reraNo || "__________"}</strong> dated <strong>{d.reraDate || "__________"}</strong>-படி "<strong>{d.layoutName || "__________"}</strong>" எனப்பெயரிட்டு குடியிருப்புக்காக பிளாட்டுகளாகப் பிரித்திருப்பதில் பெறப்பட்ட மனை என் முழு சுவாதீன அனுபவத்தில் இருந்து வருகிறது. இச்சொத்தின் மீது வேறு எவ்வித வில்லங்கமோ இல்லை என 1-வது பார்ட்டி உறுதியளிக்கிறேன்.
+                </p>
+
+                <p><strong>கிரையத் தொகை மற்றும் முன்பணம்:</strong><br/>
+                  நாம் இருவரும் மனப்பூர்வமாக சம்மதித்து செய்து கொண்ட ஒப்பந்தத்தின் அடிப்படையில், தபசில் சொத்தை 2-வது பார்ட்டியாகிய உங்களுக்கு விற்க முடிவு செய்து, அதற்கான மொத்த கிரையத் தொகையாக ரூ.<strong>{d.totalAmount || "____________"}</strong>/- (எழுத்தால் ரூபாய் <strong>{d.totalAmountWords || "________________________________"}</strong> மட்டும்) என நிர்ணயம் செய்யப்பட்டுள்ளது.<br/>
+                  இத்தொகையில் அட்வான்ஸ் (முன்பணம்) தொகையாக ரூ.<strong>{d.advanceAmount || "____________"}</strong>/- (எழுத்தால் ரூபாய் <strong>{d.advanceAmountWords || "________________________________"}</strong> மட்டும்)-ஐ 2-வது பார்ட்டியாகிய தங்களிடமிருந்து 1-வது பார்ட்டியாகிய நான் தங்களுடைய <strong>{d.purchaserBank || "__________"}</strong>, நாளது தேதியில் <strong>{d.sellerBank || "__________"}</strong> (TR.ID. <strong>{d.transactionId || "__________"}</strong>)-ல் வங்கி பரிவர்த்தனை மூலம் பெற்றுக் கொண்டேன்.
+                </p>
+
+                <p><strong>காலக்கெடு மற்றும் நிபந்தனைகள்:</strong><br/>
+                  1. மீதமுள்ள கிரையப் பாக்கித் தொகையை இன்று முதல் <strong>{d.timeLimitMonths || "____"}</strong> மாதங்களுக்குள் (அதாவது <strong>{d.timeLimitDate || "____/____/20__"}</strong> தேதிக்குள்) 2-வது பார்ட்டி 1-வது பார்ட்டியிடம் செலுத்திவிட வேண்டும்.<br/>
+                  2. பாக்கித் தொகையை பெற்றுக் கொண்டவுடன், 1-வது பார்ட்டி தனது சொந்த செலவில் வில்லங்க சான்றிதழ் (EC), மூல ஆவணங்கள் (Original Documents), பட்டா, சிட்டா, மற்றும் வரி ரசீதுகளை ஒப்படைத்து, 2-வது பார்ட்டி அல்லது அவர் கைகாட்டும் நபரின் பெயரில் கிரையப் பத்திரம் பதிவு செய்து கொடுக்க வேண்டும்.<br/>
+                  3. குறிப்பிட்ட காலக்கெடுவிற்குள் 2-வது பார்ட்டி மீதித் தொகையை செலுத்தத் தவறினால், கொடுத்த முன்பணம் திருப்பியளிக்கப்பட மாட்டாது.
+                </p>
+
+                <p>மேற்கண்ட நிபந்தனைகளுக்கு நாம் இருவரும் சம்மதித்து, மனப்பூர்வமாகப் படித்துப் பார்த்து இந்த கிரைய ஒப்பந்தத்தில் கையொப்பம் செய்துள்ளோம்.</p>
+              </>
+            )
           ) : (
-              isEnglish ? (
+             isEnglish ? (
                 <>
-                  <p><strong>Party of the First Part (Seller):</strong><br/>
+                  <p style={{ textAlign: "right" }}><strong>Consideration: Rs. {d.totalAmount || "__________"}/-</strong></p>
+                  <p><strong>Party of the First Part (Vendor / Seller):</strong><br/>
                     Mr/Ms <strong>{d.sellerName || "_______"}</strong>, {d.sellerRelation || "Son/Wife/Daughter of"} <strong>{d.sellerRelativeName || "_______"}</strong> (Age: <strong>{d.sellerAge || "___"}</strong>, Aadhar/PAN: <strong>{d.sellerPan || "_______"}</strong>), residing at <strong>{d.sellerAddress || "_________________________________"}</strong>, <strong>{d.sellerTaluk || "________"}</strong> Taluk, <strong>{d.sellerDistrict || "________"}</strong> District - <strong>{d.sellerPincode || "______"}</strong> (hereinafter called the Vendor / First Party).
                   </p>
 
-                  <p><strong>Party of the Second Part (Purchaser):</strong><br/>
+                  <p><strong>Party of the Second Part (Vendee / Purchaser):</strong><br/>
                     Mr/Ms <strong>{d.purchaserName || "_______"}</strong>, {d.purchaserRelation || "Son/Wife/Daughter of"} <strong>{d.purchaserRelativeName || "_______"}</strong> (Age: <strong>{d.purchaserAge || "___"}</strong>, Aadhar/PAN: <strong>{d.purchaserPan || "_______"}</strong>), residing at <strong>{d.purchaserAddress || "_________________________________"}</strong>, <strong>{d.purchaserTaluk || "________"}</strong> Taluk, <strong>{d.purchaserDistrict || "________"}</strong> District - <strong>{d.purchaserPincode || "______"}</strong> (hereinafter called the Purchaser / Second Party).
                   </p>
 
                   <p style={{ marginTop: "20px", fontWeight: "bold" }}>
-                    WHEREAS both the parties have mutually agreed to enter into this agreement as follows:
+                    WHEREAS the Vendor is the absolute owner of the Schedule Property, having acquired it vide Document No. <strong>{d.priorDocNo || "________"}</strong> of Year <strong>{d.priorDocYear || "____"}</strong> registered at the <strong>{d.propertySubRegistry || "________"}</strong> Sub-Registry.
                   </p>
 
-                  <p><strong>Absolute Ownership:</strong><br/>
-                    The Vendor is the absolute owner of the property described in the schedule below, situated at <strong>{d.propertyDistrict || "________"}</strong> Registration District, <strong>{d.propertySubRegistry || "________"}</strong> Sub-Registry, acquired vide Document No. <strong>{d.priorDocNo || "________"}</strong> of Year <strong>{d.priorDocYear || "____"}</strong>, and is in uninterrupted possession and enjoyment of the same. The Vendor assures that the property is free from all encumbrances.
+                  <p><strong>Sale Consideration & Transfer of Rights:</strong><br/>
+                    The Vendor has agreed to sell and the Purchaser has agreed to purchase the schedule property for a total sale consideration of Rs.<strong>{d.totalAmount || "____________"}</strong>/- (Rupees <strong>{d.totalAmountWords || "________________________________"}</strong> only). The Vendor acknowledges the receipt of the entire sale consideration today and hereby grants, conveys, and transfers all rights, title, and interest in the Schedule Property to the Purchaser absolutely and forever.
                   </p>
 
-                  <p><strong>Sale Consideration & Advance:</strong><br/>
-                    The Vendor has agreed to sell and the Purchaser has agreed to purchase the schedule property for a total sale consideration of Rs.<strong>{d.totalAmount || "____________"}</strong>/- (Rupees <strong>{d.totalAmountWords || "________________________________"}</strong> only).<br/>
-                    Out of the total consideration, the Vendor acknowledges receipt of an advance amount of Rs.<strong>{d.advanceAmount || "____________"}</strong>/- (Rupees <strong>{d.advanceAmountWords || "________________________________"}</strong> only) from the Purchaser via <strong>{d.advanceMode || "________________"}</strong> on this day.
+                  <p><strong>Layout and Approvals:</strong><br/>
+                    The property is part of an approved layout with DTCP No: <strong>{d.dtcpNo || "__________"}</strong> (File No: <strong>{d.dtcpFileNo || "__________"}</strong>) and Panchayat Approval No: <strong>{d.panchayatApprovalNo || "__________"}</strong> dated <strong>{d.panchayatApprovalDate || "__________"}</strong>. It is registered under RERA No: <strong>{d.reraNo || "__________"}</strong> dated <strong>{d.reraDate || "__________"}</strong>, and named as "<strong>{d.layoutName || "__________"}</strong>". 
                   </p>
 
-                  <p><strong>Terms and Conditions:</strong><br/>
-                    1. The Purchaser agrees to pay the balance sale consideration to the Vendor within a period of <strong>{d.timeLimitMonths || "____"}</strong> months (i.e., on or before <strong>{d.timeLimitDate || "____/____/20__"}</strong>).<br/>
-                    2. Upon receipt of the full balance amount, the Vendor shall execute and register the Sale Deed in favor of the Purchaser or their nominee, handing over all original documents, Encumbrance Certificate (EC), Patta, and tax receipts.<br/>
-                    3. If the Purchaser fails to pay the balance amount within the stipulated time, the advance paid shall stand forfeited.
+                  <p><strong>Payment Details:</strong><br/>
+                    The Vendor acknowledges receipt of the total sale consideration from the Purchaser's Bank (<strong>{d.purchaserBank || "__________"}</strong>) to the Vendor's Bank (<strong>{d.sellerBank || "__________"}</strong>) vide Transaction ID <strong>{d.transactionId || "__________"}</strong> on this day.
                   </p>
 
-                  <p>IN WITNESS WHEREOF both the parties have signed this agreement with free will and full understanding of the contents.</p>
+                  <p><strong>Assurances:</strong><br/>
+                    The Vendor assures that the property is free from all encumbrances, charges, or legal disputes. The Vendor has handed over the vacant possession of the property along with all original title deeds and documents to the Purchaser today. The Purchaser is hereafter entitled to enjoy the property, mutate revenue records (Patta, EB, Water) in their name, and pay future taxes.
+                  </p>
                 </>
-              ) : (
+             ) : (
                 <>
-                  <p><strong>1-வது பார்ட்டி (சொத்து விற்பவர்):</strong><br/>
-                    <strong>{d.sellerDistrict || "________"}</strong> மாவட்டம், <strong>{d.sellerTaluk || "________"}</strong> வட்டம்/தாலுகா, <strong>{d.sellerAddress || "_________________________________"}</strong> - <strong>{d.sellerPincode || "______"}</strong> என்ற முகவரியில் வசித்து வரும் திரு/திருமதி <strong>{d.sellerRelativeName || "_______"}</strong> அவர்களின் {d.sellerRelation || "மகன்/மனைவி/மகள்"} திரு/திருமதி <strong>{d.sellerName || "_______"}</strong> (வயது: <strong>{d.sellerAge || "___"}</strong>, ஆதார் எண்/PAN: <strong>{d.sellerPan || "_______"}</strong>) (1-வது பார்ட்டி).
+                  <p style={{ textAlign: "right", fontWeight: "bold", fontSize: "16px" }}>கிரையம் ரூ. {d.totalAmount || "__________"}/-</p>
+                  
+                  <p>
+                    <strong>{d.purchaserDistrict || "__________"}</strong> மாவட்டம், <strong>{d.purchaserTaluk || "__________"}</strong> தாலுகா, <strong>{d.purchaserAddress || "__________"}</strong> என்ற முகவரியில் வசித்து வரும் திரு. <strong>{d.purchaserRelativeName || "__________"}</strong> அவர்கள் {d.purchaserRelation || "குமாரர்/மனைவி"} திரு. <strong>{d.purchaserName || "__________"}</strong> (Aadhar Card No. <strong>{d.purchaserPan || "__________"}</strong>) (Cell No. <strong>{d.clientPhone || "__________"}</strong>) - <strong>கிரையம் வாங்குபவர்.</strong>
                   </p>
 
-                  <p><strong>2-வது பார்ட்டி (சொத்து வாங்குபவர்):</strong><br/>
-                    <strong>{d.purchaserDistrict || "________"}</strong> மாவட்டம், <strong>{d.purchaserTaluk || "________"}</strong> வட்டம்/தாலுகா, <strong>{d.purchaserAddress || "_________________________________"}</strong> - <strong>{d.purchaserPincode || "______"}</strong> என்ற முகவரியில் வசித்து வரும் திரு/திருமதி <strong>{d.purchaserRelativeName || "_______"}</strong> அவர்களின் {d.purchaserRelation || "மகன்/மனைவி/மகள்"} திரு/திருமதி <strong>{d.purchaserName || "_______"}</strong> (வயது: <strong>{d.purchaserAge || "___"}</strong>, ஆதார் எண்/PAN: <strong>{d.purchaserPan || "_______"}</strong>) (2-வது பார்ட்டி).
+                  <p>
+                    <strong>{d.sellerDistrict || "__________"}</strong> மாவட்டம், <strong>{d.sellerTaluk || "__________"}</strong> தாலுகா, <strong>{d.sellerAddress || "__________"}</strong> முகவரியில் வசித்து வரும் திரு. <strong>{d.sellerRelativeName || "__________"}</strong> அவர்கள் {d.sellerRelation || "குமாரர்/மனைவி"} திரு. <strong>{d.sellerName || "__________"}</strong> (Aadhar No. <strong>{d.sellerPan || "__________"}</strong>) - <strong>கிரையம் விற்பவர்.</strong>
                   </p>
 
-                  <p style={{ marginTop: "20px", fontWeight: "bold" }}>
-                    ஆக நாம் 1, 2 பார்ட்டிகள் சேர்ந்து எழுதிக் கொண்ட நிலம்/வீடு கிரைய ஒப்பந்தம் என்னவென்றால்,
+                  <p style={{ marginTop: "20px", fontWeight: "bold" }}>எழுதிக்கொடுத்த கிரைய பத்திரம் என்னவென்றால்,</p>
+
+                  <p>
+                    இதன் தபசில் கண்ட சொத்தும் கூடுதலும் எனது பெயருக்கு <strong>{d.propertySubRegistry || "__________"}</strong> சார்பதிவாளர் அலுவலகம் 1 புத்தகம் <strong>{d.priorDocYear || "__________"}</strong>-ம் வருடத்திய <strong>{d.priorDocNo || "__________"}</strong>-ம் கிரைய ஆவண எண்ணாக கிடைக்கப்பெற்ற தபசில் சொத்தை Layout-ஆக பிரித்து <strong>{d.propertyDistrict || "__________"}</strong> மாவட்டம் நகர் ஊரமைப்பு அலுவலகம், உள்ளுர் திட்டக்குழு கோப்பு எண் <strong>{d.dtcpFileNo || "__________"}</strong>, DTCP NO: <strong>{d.dtcpNo || "__________"}</strong>-படியும், தொழில் நுட்ப ஒப்புதல் மற்றும் திட்ட அனுமதி பெறப்பட்டும், <strong>{d.propertyPanchayat || "__________"}</strong> பஞ்சாயத்து எண்: <strong>{d.panchayatApprovalNo || "__________"}</strong> நாள் : <strong>{d.panchayatApprovalDate || "__________"}</strong> பிரகாரம் அனுமதி பெறப்பட்டும் சாலை, பூங்கா, உள்ளாட்சி மற்றும் மின்வாரியத்துக்கு ஒதுக்கி TAMIL NADU REAL ESTATE REGULATORY AUTHORITY REGISTRATION CERTIFICATE OF PROJECT <strong>{d.reraNo || "__________"}</strong> dated <strong>{d.reraDate || "__________"}</strong>-படி "<strong>{d.layoutName || "__________"}</strong>" எனப்பெயரிட்டு குடியிருப்புக்காக பிளாட்டுகளாகப் பிரித்திருப்பதில் பெறப்பட்ட இதன் தபசில் கண்ட சொத்து எனக்கு சர்வ சுதந்திரமாய் பாத்தியப்பட்டு பின் என் பெயருக்கு தீர்வை முதலானதுகள் செலுத்தி வில்லங்கசுத்தியயாய் ஆண்டனுபவித்து வருகிற இதன் தபசில் கண்ட சொத்து பட்டா எண் <strong>{d.pattaNo || "__________"}</strong> எண்ணாக தனிப்பட்டா ஏற்பட்டு இருப்பதன் மூலம் எனக்கு மட்டும் சொந்தமான இதன் தபசில் கண்ட சொத்தை நாளது தேதியில் நான் தங்களுக்கு ரூ. <strong>{d.totalAmount || "__________"}</strong>/- (எழுத்தால் ரூபாய் <strong>{d.totalAmountWords || "__________"}</strong> மட்டும்)-க்கு கிரையம் பேசி ஒப்புக்கொண்டு அதுவகைக்கு நான் தங்களிடமிருந்து தொகை முழுவதும் இதன் பணப்பற்று விபரப்படி பெற்றுக்கொண்டு இதன் தபசில் சொத்தை இன்றைய தினம் தங்கள் வசம் ஒப்படைத்துள்ளபடியால் இது முதல் தபசில் சொத்தை தாங்களே சர்வ சுதந்திர கிரையப் பாத்தியமாயும், புத்திர பௌத்திர பரம்பரையாயும், தானாதி வினியோக விற்கிரையங்களுக்குப் பாத்தியஸ்தாரயும் என்றென்றைக்கும் ஆண்டனுபவித்துக் கொள்வீர்களாகவும்.
                   </p>
 
-                  <p><strong>சொத்தின் முழு உரிமை:</strong><br/>
-                    இதன் கீழே தபசில் கண்ட சொத்தானது <strong>{d.propertyDistrict || "________"}</strong> பதிவு மாவட்டம், <strong>{d.propertySubRegistry || "________"}</strong> சார்பதிவாளர் அலுவலகம், <strong>{d.priorDocYear || "____"}</strong>-ம் வருடத்திய <strong>{d.priorDocNo || "________"}</strong>-ஆவண எண்ணாக 1-வது பார்ட்டியாகிய எனக்கு கிடைக்கப் பெற்று, என் முழு சுவாதீன அனுபவத்தில் இருந்து வருகிறது. இச்சொத்தின் மீது வேறு எவ்வித வில்லங்கமோ இல்லை என 1-வது பார்ட்டி உறுதியளிக்கிறேன்.
+                  <p>
+                    தபசில் சொத்தைப் பொருத்து யாதொரு வில்லங்க விவகாரங்கள் கிடையாது என்று நான் தங்களை நம்பும்படி உறுதியாய்ச் சொல்லுகிறேன். அப்படி ஏதேனுமிருந்து பின்னர் வெளியானாலும் அல்லது ஏற்பட்டாலும், அவைகளை நானே முன்னின்று என் சொந்தச் செலவிலும் பொறுப்பிலும் என்னைப் பொருத்தும், எனது வாரிசுகளைப் பொருத்தும், எனக்குப் பாத்தியப்பட்ட இதர ஸ்தாபர ஜங்கம சொத்துக்களைப் பொருத்தும் செலவு தொகை சகிதம் நிவர்த்தி செய்து கொடுக்க சம்மதிக்கிறேன்.
                   </p>
 
-                  <p><strong>கிரையத் தொகை மற்றும் முன்பணம்:</strong><br/>
-                    நாம் இருவரும் மனப்பூர்வமாக சம்மதித்து செய்து கொண்ட ஒப்பந்தத்தின் அடிப்படையில், தபசில் சொத்தை 2-வது பார்ட்டியாகிய உங்களுக்கு விற்க முடிவு செய்து, அதற்கான மொத்த கிரையத் தொகையாக ரூ.<strong>{d.totalAmount || "____________"}</strong>/- (எழுத்தால் ரூபாய் <strong>{d.totalAmountWords || "________________________________"}</strong> மட்டும்) என நிர்ணயம் செய்யப்பட்டுள்ளது.<br/>
-                    இத்தொகையில் அட்வான்ஸ் (முன்பணம்) தொகையாக ரூ.<strong>{d.advanceAmount || "____________"}</strong>/- (எழுத்தால் ரூபாய் <strong>{d.advanceAmountWords || "________________________________"}</strong> மட்டும்)-ஐ 2-வது பார்ட்டியாகிய தங்களிடமிருந்து 1-வது பார்ட்டியாகிய நான் <strong>{d.advanceMode || "இன்று நேரில் / காசோலை மூலம்"}</strong> பெற்றுக் கொண்டேன்.
+                  <p>
+                    இதன் தபசில் கண்ட சொத்திற்கான பட்டாவை தங்கள் பெயருக்கு மாற்றிக் கொள்ள இணைய வழி மனு சமர்ப்பித்துள்ளேன். தாங்கள் தங்கள் பெயருக்கு பட்டாவை மாற்றிக் கொள்ள வேண்டியது.
                   </p>
 
-                  <p><strong>காலக்கெடு மற்றும் நிபந்தனைகள்:</strong><br/>
-                    1. மீதமுள்ள கிரையப் பாக்கித் தொகையை இன்று முதல் <strong>{d.timeLimitMonths || "____"}</strong> மாதங்களுக்குள் (அதாவது <strong>{d.timeLimitDate || "____/____/20__"}</strong> தேதிக்குள்) 2-வது பார்ட்டி 1-வது பார்ட்டியிடம் செலுத்திவிட வேண்டும்.<br/>
-                    2. பாக்கித் தொகையை பெற்றுக் கொண்டவுடன், 1-வது பார்ட்டி தனது சொந்த செலவில் வில்லங்க சான்றிதழ் (EC), மூல ஆவணங்கள் (Original Documents), பட்டா, சிட்டா, மற்றும் வரி ரசீதுகளை ஒப்படைத்து, 2-வது பார்ட்டி அல்லது அவர் கைகாட்டும் நபரின் பெயரில் கிரையப் பத்திரம் பதிவு செய்து கொடுக்க வேண்டும்.<br/>
-                    3. குறிப்பிட்ட காலக்கெடுவிற்குள் 2-வது பார்ட்டி மீதித் தொகையை செலுத்தத் தவறினால், கொடுத்த முன்பணம் திருப்பியளிக்கப்பட மாட்டாது.
+                  <p>
+                    <strong>{d.priorDocYear || "__________"}</strong>-ம் தேதியில் <strong>{d.propertySubRegistry || "__________"}</strong> சார்பதிவாளர் அலுவலகம் 1 புத்தகம் <strong>{d.priorDocNo || "__________"}</strong> கிரைய ஆவணத்தில் கையிருப்பு சொத்து இருப்பதால் இதன் நகல் ஆவணங்களையும், இதர முன் ஆவணங்களின் நகல் ஆவணங்களையும் இன்றைய தினம் நான் தங்களிடம் ஒப்படைத்திருக்கிறேன்.
                   </p>
 
-                  <p>மேற்கண்ட நிபந்தனைகளுக்கு நாம் இருவரும் சம்மதித்து, மனப்பூர்வமாகப் படித்துப் பார்த்து இந்த கிரைய ஒப்பந்தத்தில் கையொப்பம் செய்துள்ளோம்.</p>
+                  <h4 style={{ textDecoration: "underline", textAlign: "center", marginTop: "20px" }}>பணப்பற்று விபரம்</h4>
+                  <p>
+                    இதன் தபசில் கண்ட சொத்தை ரூ. <strong>{d.totalAmount || "__________"}</strong>/- (எழுத்தால் ரூபாய் <strong>{d.totalAmountWords || "__________"}</strong> மட்டும்)-க்கு கிரையம் பேசி தருவதாக ஒப்புக் கொண்டு அது வகைக்கு தங்களுடைய <strong>{d.purchaserBank || "__________"}</strong>, நாளது தேதியில் <strong>{d.sellerBank || "__________"}</strong> (TR.ID. <strong>{d.transactionId || "__________"}</strong>)-ல் ரூ. <strong>{d.totalAmount || "__________"}</strong>/- (எழுத்தால் ரூபாய் <strong>{d.totalAmountWords || "__________"}</strong> மட்டும்)-ஐ வங்கி பரிவர்த்தணை மூலம் நான் பெற்றுக் கொண்டதன்படி என் பணப்பற்று விபரம் சரி.
+                  </p>
                 </>
-              )
+             )
           )}
 
           <div style={{ pageBreakInside: 'avoid', breakInside: 'avoid', display: 'inline-block', width: '100%' }}>
@@ -1276,7 +1437,7 @@ export default function UserDashboard() {
               {isEnglish || isMOTDeed ? (
                 <>Property situated in <strong>{d.propertyDistrict || "________"}</strong> Registration District, <strong>{d.propertySubRegistry || "________"}</strong> Sub-Registry, <strong>{d.propertyTaluk || "________"}</strong> Taluk, <strong>{d.propertyVillage || "________"}</strong> Village/Municipality. Patta No: <strong>{d.pattaNo || "________"}</strong> Resurvey No: <strong>{d.tsNo || "________"}</strong> Total Extent / Area: <strong>{d.landArea || "________"}</strong>.</>
               ) : (
-                <><strong>{d.propertyDistrict || "________"}</strong> பதிவு மாவட்டம், <strong>{d.propertySubRegistry || "________"}</strong> சார்பதிவாளர் அலுவலக சரகம், <strong>{d.propertyTaluk || "________"}</strong> வட்டம், <strong>{d.propertyVillage || "________"}</strong> கிராமம் மாலிலில் பட்டா எண்: <strong>{d.pattaNo || "________"}</strong>-ல் கண்டபடி ரீசர்வே எண் <strong>{d.tsNo || "________"}</strong> நம்பர் புஞ்சை ஹெக்டேர் <strong>{d.landArea || "________"}</strong>-க்கு மாலாவது:</>
+                <><strong>{d.propertyDistrict || "________"}</strong> பதிவு மாவட்டம், <strong>{d.propertySubRegistry || "________"}</strong> சார்பதிவாளர் அலுவலக சரகம், <strong>{d.propertyTaluk || "________"}</strong> வட்டம், <strong>{d.propertyVillage || "________"}</strong> கிராமம் மாலிலில் பட்டா எண்: <strong>{d.pattaNo || "________"}</strong>-ல் கண்டபடி ரீசர்வே எண் <strong>{d.tsNo || "________"}</strong> நம்பர் புஞ்சை ஹெக்டேர் <strong>{d.landArea || "________"}</strong></>
               )}
             </p>
 
@@ -1294,16 +1455,27 @@ export default function UserDashboard() {
                 : <>இந்த நான்கு எல்லைகளுக்கு உட்பட்ட புஞ்சை ஹெக்டேர் -க்கு ஏக்கர் -ம் தபசில் விபரம் சரி. ஷ சொத்து <strong>{d.propertyPanchayat || "________"}</strong> கிராமம் பஞ்சாயத்து <strong>{d.propertyUnion || "________"}</strong> பஞ்சாயத்து யூனியன் சரகத்திற்கு உட்பட்டது. {(isReleaseDeed || isSettlementDeed) ? "" : `சொத்தின் மதிப்பு: ரூ. ${d.totalAmount || "________"} /-`}</>}
             </p>
             
-            {(isReleaseDeed || isMOTDeed || isSettlementDeed) && (
+            {(isReleaseDeed || isMOTDeed || isSettlementDeed ) && (
                 <div style={{ marginTop: "40px" }}>
                     <p style={{ fontWeight: 'bold', marginBottom: '10px' }}>{isEnglish || isMOTDeed ? "Witnesses (Name, Address & Signature):" : "சாட்சிகள் (பெயர், முகவரி மற்றும் கையொப்பம்):"}</p>
                     <p style={{ lineHeight: '2' }}>1. {d.witness1 || "____________________________________________________"}</p>
                     <p style={{ lineHeight: '2' }}>2. {d.witness2 || "____________________________________________________"}</p>
                     
-                    <p style={{ fontWeight: 'bold', marginTop: '30px', marginBottom: '10px' }}>
-                        {isMOTDeed ? "Signature of the Mortgagor:" : (isEnglish ? (isSettlementDeed ? "Signature of the Settlor (First Party):" : "Signature of the Releasor (Second Party):") : (isSettlementDeed ? "ஆவணம் எழுதி கொடுத்தவர் (1-வது பார்ட்டி) கையொப்பம்:" : "ஆவணம் எழுதி கொடுத்தவர்கள் (2-வது பார்ட்டி) கையொப்பம்:"))}
+                    <p style={{ fontWeight: 'bold', marginTop: '30px', marginBottom: '10px', display: 'flex', justifyContent: 'space-between' }}>
+                        <span>
+                          {isMOTDeed ? "Signature of the Mortgagor:" : 
+                           (isEnglish ? 
+                             (isSettlementDeed ? "Signature of the Settlor (First Party):" : isSaleDeed || isSaleAgreement ? "Signature of Purchaser:" : "Signature of the Releasor (Second Party):") 
+                             : 
+                             (isSettlementDeed ? "ஆவணம் எழுதி கொடுத்தவர் (1-வது பார்ட்டி) கையொப்பம்:" : isSaleDeed || isSaleAgreement ? "கிரையம் வாங்குபவர் கையொப்பம்:" : "ஆவணம் எழுதி கொடுத்தவர்கள் (2-வது பார்ட்டி) கையொப்பம்:")
+                           )}
+                        </span>
+                        {(isSaleDeed || isSaleAgreement) && <span>{isEnglish ? "Signature of Vendor:" : "கிரையம் விற்பவர் கையொப்பம்:"}</span>}
                     </p>
-                    <p style={{ lineHeight: '2' }}>1. _______________________</p>
+                    <p style={{ lineHeight: '2', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>1. _______________________</span>
+                      {(isSaleDeed || isSaleAgreement) && <span>_______________________</span>}
+                    </p>
                     {(!isMOTDeed || (isMOTDeed && d.mortgagorCorpName)) && <p style={{ lineHeight: '2' }}>2. _______________________</p>}
                 </div>
             )}
@@ -1349,7 +1521,6 @@ export default function UserDashboard() {
         <button className={activeTab === "clientCreation" ? "active" : ""} onClick={() => setActiveTab("clientCreation")} style={tightBtnStyle}><FiUsers /> Clients</button>
         <button className={activeTab === "statusTracking" ? "active" : ""} onClick={() => setActiveTab("statusTracking")} style={tightBtnStyle}><FiCheckCircle /> Status Tracking</button>
         <button className={activeTab === "viewAllTracking" ? "active" : ""} onClick={() => setActiveTab("viewAllTracking")} style={tightBtnStyle}><FiLayers /> View All</button>
-        <button className={activeTab === "pdfArchive" ? "active" : ""} onClick={() => setActiveTab("pdfArchive")} style={tightBtnStyle}><FiFolder /> PDF Archive</button>
         <button className={activeTab === "dailyActivity" ? "active" : ""} onClick={() => setActiveTab("dailyActivity")} style={tightBtnStyle}><FiClock /> Daily Activities</button>
         
         <button 
@@ -1408,134 +1579,7 @@ export default function UserDashboard() {
             .back-link:hover { color: #0f172a; text-decoration: underline; }
           `}
         </style>
-
         <div key={activeTab} className="page-transition-anim">
-
-          {activeTab === "pdfArchive" && (
-            <div style={{ padding: "40px", background: "#f8fafc", minHeight: "100%" }}>
-              <h1 className="page-title" style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "30px", color: "#0f172a", marginTop: 0 }}>
-                <FiFolder style={{ color: "#4f46e5" }} /> My PDF Archive
-              </h1>
-              <p style={{ color: '#64748b', marginBottom: '25px' }}>Access and download the PDF documents you have generated and submitted.</p>
-              
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "25px" }}>
-                {drafts.length === 0 ? (
-                  <div style={{ gridColumn: "1 / -1", textAlign: 'center', padding: '60px 20px', background: 'white', borderRadius: '16px', border: '2px dashed #e2e8f0' }}>
-                      <FiFolder size={40} style={{ color: '#cbd5e1', marginBottom: '15px' }} />
-                      <h3 style={{ color: '#1e293b', marginBottom: '5px' }}>No PDFs Stored Yet</h3>
-                      <p style={{ color: '#64748b' }}>When you generate drafts with PDF attachments, they will appear here.</p>
-                  </div>
-                ) : (
-                  drafts.map(doc => (
-                    <div key={doc.id} style={{ background: "white", padding: "25px", borderRadius: "16px", boxShadow: "0 4px 6px rgba(0,0,0,0.05)", border: "1px solid #e2e8f0", display: "flex", flexDirection: "column", gap: "15px" }}>
-                      <div style={{ display: "flex", alignItems: "flex-start", gap: "15px" }}>
-                        <div style={{ background: "#eff6ff", padding: "12px", borderRadius: "12px", color: "#3b82f6" }}>
-                          <FiFileText size={28} />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <h3 style={{ margin: "0 0 5px 0", fontSize: "16px", color: "#1e293b", lineHeight: "1.3" }}>{doc.deedType}</h3>
-                          <p style={{ margin: 0, fontSize: "14px", color: "#64748b" }}>{doc.clientName}</p>
-                        </div>
-                      </div>
-                      
-                      <div style={{ fontSize: "13px", color: "#94a3b8", display: "flex", justifyContent: "space-between", borderTop: "1px solid #f1f5f9", paddingTop: "15px", marginTop: "auto" }}>
-                        <span>Status: <span style={{ color: doc.status === 'Approved' ? '#10b981' : doc.status === 'Pending' ? '#f59e0b' : '#ef4444', fontWeight: 'bold' }}>{doc.status}</span></span>
-                        <span>{doc.submittedOn?.date || "Archived"}</span>
-                      </div>
-
-                      <div style={{ display: "flex", gap: "10px", marginTop: "5px" }}>
-                        <button onClick={() => handleViewPdf(doc)} style={{ flex: 1, padding: "10px", background: "#f8fafc", color: "#334155", border: "1px solid #cbd5e1", borderRadius: "8px", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "5px" }}>
-                          <FiEye /> View
-                        </button>
-                        <button onClick={() => handleDownloadPdf(doc)} style={{ flex: 1, padding: "10px", background: "#4f46e5", color: "white", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "5px" }}>
-                          <FiDownload /> Save
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeTab === "dailyActivity" && (
-            <div className="activity-section" style={{ background: "#f8fafc", padding: "40px", height: "100%", overflowY: "auto" }}>
-              <div style={{ maxWidth: "800px", margin: "0 auto" }}>
-                
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', flexWrap: 'wrap', gap: '15px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: '#0f172a' }}>
-                    <div style={{ background: '#3b82f6', color: 'white', padding: '10px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <FiActivity size={24} />
-                    </div>
-                    <h2 style={{ margin: 0, fontSize: '28px', fontWeight: 'bold' }}>Daily Activities</h2>
-                  </div>
-                  
-                  <div 
-                    style={{ display: "flex", alignItems: "center", gap: "10px", background: "white", padding: "10px 18px", borderRadius: "12px", border: "1px solid #cbd5e1", boxShadow: "0 2px 5px rgba(0,0,0,0.02)", transition: "all 0.2s" }}
-                    onMouseEnter={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
-                    onMouseLeave={(e) => e.currentTarget.style.borderColor = '#cbd5e1'}
-                  >
-                    <FiCalendar color="#64748b" size={18} />
-                    <span style={{ color: "#64748b", fontSize: "14px", fontWeight: "600", marginRight: "5px" }}>Date:</span>
-                    <input 
-                      type="date" 
-                      value={activitySearchDate}
-                      onChange={(e) => setActivitySearchDate(e.target.value)}
-                      style={{ border: "none", outline: "none", background: "transparent", color: "#0f172a", fontWeight: "700", fontSize: "14px", padding: 0, margin: 0, width: "auto", cursor: "pointer", fontFamily: "inherit" }}
-                    />
-                  </div>
-                </div>
-                
-                <div className="timeline-container" style={{ background: "white", padding: "30px", borderRadius: "16px", boxShadow: "0 4px 15px rgba(0,0,0,0.03)", border: "1px solid #e2e8f0" }}>
-                  {activities
-                    .filter(log => log.email === currentUser.email)
-                    .filter(log => log.action !== "Draft Record Deleted")
-                    .filter(log => {
-                        const searchFormatted = new Date(activitySearchDate).toLocaleDateString();
-                        return log.date === searchFormatted;
-                    })
-                    .map((log, idx, arr) => {
-                      const style = getActivityStyle(log.action);
-                      const isLast = idx === arr.length - 1;
-                      return (
-                        <div key={log.id} style={{ display: "flex", gap: "20px", marginBottom: isLast ? "0" : "25px" }}>
-                          
-                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: "44px" }}>
-                            <div style={{ width: "44px", height: "44px", borderRadius: "50%", background: style.bg, color: style.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", zIndex: 2, boxShadow: "0 0 0 4px white" }}>
-                              {style.icon}
-                            </div>
-                            {!isLast && <div style={{ width: "2px", background: "#f1f5f9", flex: 1, marginTop: "5px" }}></div>}
-                          </div>
-                          
-                          <div style={{ flex: 1, paddingBottom: "10px" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px", background: "#f8fafc", padding: "16px", borderRadius: "12px", border: "1px solid #f1f5f9" }}>
-                              <div>
-                                <h4 style={{ margin: "0 0 6px 0", color: "#0f172a", fontSize: "16px", fontWeight: "600" }}>{log.action}</h4>
-                                <p style={{ margin: 0, color: "#475569", fontSize: "14px", lineHeight: "1.5" }}>{log.details}</p>
-                              </div>
-                              <div style={{ textAlign: "right", minWidth: "120px" }}>
-                                <span style={{ display: "block", color: "#64748b", fontSize: "13px", fontWeight: "600", marginBottom: "2px" }}>{log.date}</span>
-                                <span style={{ color: "#94a3b8", fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "4px" }}>
-                                  <FiClock size={10} /> {log.time}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    
-                    {activities
-                      .filter(log => log.email === currentUser.email && log.action !== "Draft Record Deleted" && log.date === new Date(activitySearchDate).toLocaleDateString()).length === 0 && (
-                      <div style={{ textAlign: "center", padding: "60px 20px", color: "#94a3b8", display: "flex", flexDirection: "column", alignItems: "center", gap: "15px" }}>
-                        <FiActivity size={48} color="#cbd5e1" />
-                        <p style={{ fontSize: "16px", margin: 0 }}>No activities found for this date.</p>
-                      </div>
-                    )}
-                </div>
-              </div>
-            </div>
-          )}
 
           {activeTab === "deedTypes" && (
             <div className="tab-view">
@@ -1621,7 +1665,7 @@ export default function UserDashboard() {
                                       list={`${f.name}-list`}
                                       type="text" 
                                       name={f.name} 
-                                      value={draftForm[f.name]} 
+                                      value={draftForm[f.name] || ""} 
                                       onChange={handleDraftChange} 
                                       className={formErrors[f.name] ? "input-error" : ""}
                                       autoComplete="off"
@@ -1629,11 +1673,11 @@ export default function UserDashboard() {
                                   ) : (
                                     <SmartTamilInput
                                       list={`${f.name}-list`}
-                                      value={draftForm[f.name]}
+                                      value={draftForm[f.name] || ""}
                                       name={f.name}
                                       onChangeText={(text) => {
-                                        setDraftForm({ ...draftForm, [f.name]: text });
-                                        if(formErrors[f.name]) setFormErrors({...formErrors, [f.name]: null});
+                                        setDraftForm(prev => ({ ...prev, [f.name]: text }));
+                                        setFormErrors(prev => ({ ...prev, [f.name]: null }));
                                       }}
                                       className={formErrors[f.name] ? "input-error" : ""}
                                     />
@@ -1648,17 +1692,17 @@ export default function UserDashboard() {
                                 <input 
                                   type={f.type || "text"} 
                                   name={f.name} 
-                                  value={draftForm[f.name]} 
+                                  value={draftForm[f.name] || ""} 
                                   onChange={handleDraftChange} 
                                   className={formErrors[f.name] ? "input-error" : ""}
                                 />
                               ) : (
                                 <SmartTamilInput
-                                  value={draftForm[f.name]}
+                                  value={draftForm[f.name] || ""}
                                   name={f.name}
                                   onChangeText={(text) => {
-                                    setDraftForm({ ...draftForm, [f.name]: text });
-                                    if(formErrors[f.name]) setFormErrors({...formErrors, [f.name]: null});
+                                    setDraftForm(prev => ({ ...prev, [f.name]: text }));
+                                    setFormErrors(prev => ({ ...prev, [f.name]: null }));
                                   }}
                                   className={formErrors[f.name] ? "input-error" : ""}
                                 />
@@ -1671,7 +1715,7 @@ export default function UserDashboard() {
 
                         {currentStep === 4 && (
                           <div className="input-group priority-checkbox" style={{ marginTop: '20px' }}>
-                            <input type="checkbox" id="importantCheck" checked={draftForm.isImportant || false} onChange={(e) => setDraftForm({...draftForm, isImportant: e.target.checked})} />
+                            <input type="checkbox" id="importantCheck" checked={draftForm.isImportant || false} onChange={(e) => setDraftForm(prev => ({...prev, isImportant: e.target.checked}))} />
                             <label htmlFor="importantCheck">
                               <FiAlertCircle size={20} /> Mark this draft as Important / High Priority
                             </label>
@@ -1716,7 +1760,7 @@ export default function UserDashboard() {
                         onClick={() => handleSubmitDraft(previewDraft)} 
                         disabled={isGeneratingPdf}
                         className="submit-btn" 
-                        style={{ padding: "15px 30px", fontSize: "16px", width: "100%", justifyContent: "center", opacity: isGeneratingPdf ? 0.7 : 1, marginTop: '20px' }}
+                        style={{ padding: "15px 30px", fontSize: "16px", width: "100%", justifyContent: "center", opacity: isGeneratingPdf ? 0.7 : 1, marginTop: '20px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}
                       >
                         {isGeneratingPdf ? "Generating PDF and Submitting..." : <><FiCheck /> Confirm & Submit PDF for Verification</>}
                       </button>
@@ -2044,6 +2088,87 @@ export default function UserDashboard() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          
+
+          {activeTab === "dailyActivity" && (
+            <div className="activity-section" style={{ background: "#f8fafc", padding: "40px", height: "100%", overflowY: "auto" }}>
+              <div style={{ maxWidth: "800px", margin: "0 auto" }}>
+                
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', flexWrap: 'wrap', gap: '15px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: '#0f172a' }}>
+                    <div style={{ background: '#3b82f6', color: 'white', padding: '10px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <FiActivity size={24} />
+                    </div>
+                    <h2 style={{ margin: 0, fontSize: '28px', fontWeight: 'bold' }}>Daily Activities</h2>
+                  </div>
+                  
+                  <div 
+                    style={{ display: "flex", alignItems: "center", gap: "10px", background: "white", padding: "10px 18px", borderRadius: "12px", border: "1px solid #cbd5e1", boxShadow: "0 2px 5px rgba(0,0,0,0.02)", transition: "all 0.2s" }}
+                    onMouseEnter={(e) => e.currentTarget.style.borderColor = '#3b82f6'}
+                    onMouseLeave={(e) => e.currentTarget.style.borderColor = '#cbd5e1'}
+                  >
+                    <FiCalendar color="#64748b" size={18} />
+                    <span style={{ color: "#64748b", fontSize: "14px", fontWeight: "600", marginRight: "5px" }}>Date:</span>
+                    <input 
+                      type="date" 
+                      value={activitySearchDate}
+                      onChange={(e) => setActivitySearchDate(e.target.value)}
+                      style={{ border: "none", outline: "none", background: "transparent", color: "#0f172a", fontWeight: "700", fontSize: "14px", padding: 0, margin: 0, width: "auto", cursor: "pointer", fontFamily: "inherit" }}
+                    />
+                  </div>
+                </div>
+                
+                <div className="timeline-container" style={{ background: "white", padding: "30px", borderRadius: "16px", boxShadow: "0 4px 15px rgba(0,0,0,0.03)", border: "1px solid #e2e8f0" }}>
+                  {activities
+                    .filter(log => log.email === currentUser.email)
+                    .filter(log => log.action !== "Draft Record Deleted")
+                    .filter(log => {
+                        const searchFormatted = new Date(activitySearchDate).toLocaleDateString();
+                        return log.date === searchFormatted;
+                    })
+                    .map((log, idx, arr) => {
+                      const style = getActivityStyle(log.action);
+                      const isLast = idx === arr.length - 1;
+                      return (
+                        <div key={log.id} style={{ display: "flex", gap: "20px", marginBottom: isLast ? "0" : "25px" }}>
+                          
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: "44px" }}>
+                            <div style={{ width: "44px", height: "44px", borderRadius: "50%", background: style.bg, color: style.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", zIndex: 2, boxShadow: "0 0 0 4px white" }}>
+                              {style.icon}
+                            </div>
+                            {!isLast && <div style={{ width: "2px", background: "#f1f5f9", flex: 1, marginTop: "5px" }}></div>}
+                          </div>
+                          
+                          <div style={{ flex: 1, paddingBottom: "10px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px", background: "#f8fafc", padding: "16px", borderRadius: "12px", border: "1px solid #f1f5f9" }}>
+                              <div>
+                                <h4 style={{ margin: "0 0 6px 0", color: "#0f172a", fontSize: "16px", fontWeight: "600" }}>{log.action}</h4>
+                                <p style={{ margin: 0, color: "#475569", fontSize: "14px", lineHeight: "1.5" }}>{log.details}</p>
+                              </div>
+                              <div style={{ textAlign: "right", minWidth: "120px" }}>
+                                <span style={{ display: "block", color: "#64748b", fontSize: "13px", fontWeight: "600", marginBottom: "2px" }}>{log.date}</span>
+                                <span style={{ color: "#94a3b8", fontSize: "12px", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "4px" }}>
+                                  <FiClock size={10} /> {log.time}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    
+                    {activities
+                      .filter(log => log.email === currentUser.email && log.action !== "Draft Record Deleted" && log.date === new Date(activitySearchDate).toLocaleDateString()).length === 0 && (
+                      <div style={{ textAlign: "center", padding: "60px 20px", color: "#94a3b8", display: "flex", flexDirection: "column", alignItems: "center", gap: "15px" }}>
+                        <FiActivity size={48} color="#cbd5e1" />
+                        <p style={{ fontSize: "16px", margin: 0 }}>No activities found for this date.</p>
+                      </div>
+                    )}
+                </div>
+              </div>
             </div>
           )}
 

@@ -45,7 +45,6 @@ const AdminDashboard = () => {
   const [selectedDate, setSelectedDate] = useState("");
   const [staffSearchQuery, setStaffSearchQuery] = useState("");
 
-  // [MODIFIED] pdfViewer now includes pdfUrl as well as pdfBase64
   const [pdfViewer, setPdfViewer] = useState({ show: false, pdfBase64: null, pdfUrl: null, draft: null, fullScreen: false });
   const [editModal, setEditModal] = useState({ show: false, draft: null });
   
@@ -230,78 +229,114 @@ const AdminDashboard = () => {
     });
   };
 
-  // [MODIFIED] handleViewPdf now supports both base64 and URL paths
   const handleViewPdf = async (doc) => {
-    // If pdfAttachment is a URL (starts with /uploads/), use it directly
-    if (doc.pdfAttachment && doc.pdfAttachment.startsWith('/uploads/')) {
-      setPdfViewer({ show: true, pdfUrl: doc.pdfAttachment, draft: doc, fullScreen: false });
-      return;
-    }
-    
-    // If it's a base64 string (old records), use it as before
-    if (doc.pdfAttachment && doc.pdfAttachment.startsWith('data:application/pdf;base64,')) {
-      setPdfViewer({ show: true, pdfBase64: doc.pdfAttachment, draft: doc, fullScreen: false });
-      return;
-    }
-
-    // Fallback: try to fetch from server (for compatibility with old records or missing data)
     try {
-      const response = await axios.get(`http://localhost:5000/api/drafts/${doc.id}/pdf`);
-      if (response.data && response.data.pdfBase64) {
-        setPdfViewer({ show: true, pdfBase64: response.data.pdfBase64, draft: doc, fullScreen: false });
+      const response = await axios.get(`http://localhost:5000/api/drafts/${doc.id}`);
+      const draftFromServer = response.data;
+      doc = draftFromServer;
+
+      if (doc.pdfAttachment && doc.pdfAttachment.startsWith('/uploads/')) {
+        setPdfViewer({ show: true, pdfUrl: doc.pdfAttachment, draft: doc, fullScreen: false });
+        return;
+      }
+      
+      if (doc.pdfAttachment && doc.pdfAttachment.startsWith('data:application/pdf;base64,')) {
+        setPdfViewer({ show: true, pdfBase64: doc.pdfAttachment, draft: doc, fullScreen: false });
+        return;
+      }
+
+      const pdfRes = await axios.get(`http://localhost:5000/api/drafts/${doc.id}/pdf`);
+      if (pdfRes.data && pdfRes.data.pdfBase64) {
+        setPdfViewer({ show: true, pdfBase64: pdfRes.data.pdfBase64, draft: doc, fullScreen: false });
       } else {
         triggerAlert("Notice", "This document does not have a PDF attached in the Database.");
       }
     } catch (error) {
-      console.error(error);
-      triggerAlert("No PDF Found", "The PDF for this document could not be retrieved from the server.");
-    }
-  };
-
-  // [MODIFIED] handleDownloadPdf now supports both base64 and URL paths
-  const handleDownloadPdf = async (doc) => {
-    const triggerDownload = (urlOrBase64) => {
-      const link = document.createElement("a");
-      link.href = urlOrBase64;
-      link.download = `${doc.deedType.replace(/\s+/g, '_')}_${doc.clientName}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    };
-
-    // If pdfAttachment is a URL, use it directly
-    if (doc.pdfAttachment && doc.pdfAttachment.startsWith('/uploads/')) {
-      triggerDownload(doc.pdfAttachment);
-      return;
-    }
-
-    // If it's a base64 string, use it directly
-    if (doc.pdfAttachment && doc.pdfAttachment.startsWith('data:application/pdf;base64,')) {
-      triggerDownload(doc.pdfAttachment);
-      return;
-    }
-
-    // Fallback: try to fetch from server
-    try {
-      const response = await axios.get(`http://localhost:5000/api/drafts/${doc.id}/pdf`);
-      if (response.data && response.data.pdfBase64) {
-        triggerDownload(response.data.pdfBase64);
+      if (error.response && error.response.status === 404) {
+        triggerAlert("Draft Not Found", "This draft does not exist in the database. It may have been deleted or never saved.");
+        const notifs = JSON.parse(localStorage.getItem("app_notifications") || "[]");
+        const updatedNotifs = notifs.filter(n => n.draftId !== doc.id);
+        localStorage.setItem("app_notifications", JSON.stringify(updatedNotifs));
+        setNotifications(updatedNotifs);
       } else {
-        triggerAlert("Download Failed", "Could not fetch the PDF from the server for downloading.");
+        triggerAlert("Error", "Could not retrieve the PDF from the server.");
       }
-    } catch (error) {
-      console.error(error);
-      triggerAlert("Download Failed", "Could not fetch the PDF from the server for downloading.");
     }
   };
+
+  const handleDownloadPdf = async (doc) => {
+    try {
+      // 1. Fetch the latest document data
+      const res = await axios.get(`http://localhost:5000/api/drafts/${doc.id}`);
+      let docData = { ...doc, ...res.data };
+
+      // 2. Fetch the saved HTML content if it was manually edited
+      try {
+        const pdfRes = await axios.get(`http://localhost:5000/api/drafts/${doc.id}/pdf`);
+        if (pdfRes.data && pdfRes.data.content) {
+          docData.content = pdfRes.data.content;
+        }
+      } catch (pdfErr) {
+        console.warn("PDF content not available, using default generation.");
+      }
+
+      // 3. Get the exact HTML content
+      const finalHtml = generateInitialEditorContent(docData);
+
+      // 4. Create a temporary invisible container
+      const tempWrapper = document.createElement("div");
+      tempWrapper.style.position = "absolute";
+      tempWrapper.style.left = "-9999px";
+      tempWrapper.style.top = "0";
+      tempWrapper.style.width = "800px"; // Lock wrapper width
+
+      // 5. Apply the EXACT styles from your "pdf-export-area"
+      const editorDiv = document.createElement("div");
+      editorDiv.innerHTML = finalHtml;
+      editorDiv.style.width = "700px";
+      editorDiv.style.width = "700px";
+      editorDiv.style.background = "white";
+      editorDiv.style.padding = "40px";
+      editorDiv.style.boxSizing = "border-box"; // <-- THIS FIXES THE CUT-OFF TEXT
+      editorDiv.style.fontFamily = docData.language === 'en' ? '"Times New Roman", Times, serif' : '"Mukta Malar", "Tamil Sangam MN", "Times New Roman", serif';
+      editorDiv.style.fontSize = "16px";
+      editorDiv.style.lineHeight = "2.2";
+      editorDiv.style.color = "#000";
+      editorDiv.style.wordWrap = "break-word";
+      editorDiv.style.overflowWrap = "break-word";
+      editorDiv.style.whiteSpace = "pre-wrap";
+      editorDiv.style.textAlign = "left";
+
+      tempWrapper.appendChild(editorDiv);
+      document.body.appendChild(tempWrapper);
+
+      // 6. Set html2pdf options with a windowWidth lock
+      const opt = {
+        margin:       0.5,
+        filename:     `${docData.deedType.replace(/\s+/g, '_')}_${docData.clientName}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2, useCORS: true, windowWidth: 700 }, // <-- Ensures perfect rendering width
+        jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' }
+      };
+
+      // 7. Generate and trigger the download instantly
+      await html2pdf().set(opt).from(editorDiv).save();
+
+      // 8. Cleanup the DOM
+      document.body.removeChild(tempWrapper);
+
+    } catch (error) {
+      console.error("Download Error:", error);
+      triggerAlert("Download Failed", "Could not generate the PDF from the document content.");
+    }
+  };
+   
 
   const generateInitialEditorContent = (d) => {
-    // 1. HIGHEST PRIORITY: If the Staff actually saved the HTML, render it exactly!
     if (d.content && typeof d.content === 'string' && d.content.includes('<') && d.content.includes('>')) {
       return d.content;
     }
 
-    // 2. FALLBACK: If old draft without HTML, build the blank template
     const v = (key) => {
       if (d[key] !== undefined && d[key] !== null && d[key] !== "") return d[key];
       return null;
@@ -426,49 +461,36 @@ const AdminDashboard = () => {
     return html;
   };
 
-  const handleTranslateHelper = async () => {
-    const textToTranslate = tamilHelperText.trim();
-    if (!textToTranslate) return;
-    try {
-      const response = await axios.get(
-        `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ta&dt=t&q=${encodeURIComponent(textToTranslate)}`
-      );
-      if (response.data && response.data[0]) {
-        const translatedText = response.data[0].map((item) => item[0]).join('');
-        setTamilHelperText(translatedText);
-      }
-    } catch (error) {
-      console.error("Translation failed:", error);
-      triggerAlert("Translation Error", "Could not connect to translation service. Please check your internet connection.");
-    }
-  };
-
   const openEditor = async (doc) => {
-    let docToEdit = { ...doc };
-    
     try {
-        const res = await axios.get(`http://localhost:5000/api/drafts/${doc.id}`);
-        if (res.data) {
-            const actualDoc = res.data.draft || res.data.data || res.data.document || res.data;
-            docToEdit = { ...docToEdit, ...actualDoc };
-        }
-    } catch (err) {
-        console.warn("Could not fetch full details, checking PDF endpoint next.", err);
-    }
+      const res = await axios.get(`http://localhost:5000/api/drafts/${doc.id}`);
+      const actualDoc = res.data;
+      let docToEdit = { ...doc, ...actualDoc };
 
-    try {
+      try {
         const pdfRes = await axios.get(`http://localhost:5000/api/drafts/${doc.id}/pdf`);
         if (pdfRes.data) {
-            if (pdfRes.data.content) docToEdit.content = pdfRes.data.content;
-            if (pdfRes.data.formData) docToEdit.formData = pdfRes.data.formData;
+          if (pdfRes.data.content) docToEdit.content = pdfRes.data.content;
+          if (pdfRes.data.formData) docToEdit.formData = pdfRes.data.formData;
         }
-    } catch (err) {
-        console.warn("PDF metadata fetch failed.", err);
-    }
+      } catch (pdfErr) {
+        console.warn("PDF metadata not available", pdfErr);
+      }
 
-    const finalHtml = generateInitialEditorContent(docToEdit);
-    setInitialEditorHtml(finalHtml);
-    setEditModal({ show: true, draft: docToEdit });
+      const finalHtml = generateInitialEditorContent(docToEdit);
+      setInitialEditorHtml(finalHtml);
+      setEditModal({ show: true, draft: docToEdit });
+    } catch (error) {
+      if (error.response && error.response.status === 404) {
+        triggerAlert("Draft Not Found", "This draft does not exist in the database.");
+        const notifs = JSON.parse(localStorage.getItem("app_notifications") || "[]");
+        const updatedNotifs = notifs.filter(n => n.draftId !== doc.id);
+        localStorage.setItem("app_notifications", JSON.stringify(updatedNotifs));
+        setNotifications(updatedNotifs);
+      } else {
+        triggerAlert("Error", "Could not open the draft editor.");
+      }
+    }
   };
 
   const saveEditedDraft = async () => {
@@ -507,7 +529,26 @@ const AdminDashboard = () => {
     } catch (error) {
         triggerAlert("Error", "Could not generate the updated PDF document.");
     }
+    
   };
+
+  const handleTranslateHelper = async () => {
+    if (!tamilHelperText || !tamilHelperText.trim()) return;
+    
+    try {
+      const response = await fetch(
+        `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ta&dt=t&q=${encodeURIComponent(tamilHelperText)}`
+      );
+      const data = await response.json();
+      const translatedText = data[0].map((item) => item[0]).join('');
+      
+      setTamilHelperText(translatedText);
+    } catch (error) {
+      console.error("Translation error:", error);
+      triggerAlert("Translation Error", "Could not connect to the translation service.");
+    }
+  };
+
 
   // CLIENTS - ADD (BACKEND)
   const handleAddClient = async () => {
@@ -565,7 +606,6 @@ const AdminDashboard = () => {
         let msg = `Your draft for ${targetDoc.clientName} was ${newStatus} by Admin`;
         if (newStatus === "Rejected" && rejectionReason) msg += ` | Reason: ${rejectionReason}`;
 
-        // LOCALLY STORE NOTIFICATION
         const newNotif = {
             id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
             message: msg,
@@ -754,6 +794,7 @@ const AdminDashboard = () => {
                         </button>
 
                         <button 
+
                             onClick={() => handleDownloadPdf(pdfViewer.draft)}
                             style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: '#10b981', color: 'white', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
                         >
@@ -769,7 +810,6 @@ const AdminDashboard = () => {
                 </div>
                 
                 <div style={{ flex: 1, background: 'white', borderRadius: pdfViewer.fullScreen ? '0' : '10px', overflow: 'hidden' }}>
-                  {/* [MODIFIED] conditional rendering for pdfUrl vs pdfBase64 */}
                   {pdfViewer.pdfUrl ? (
                     <iframe 
                       src={pdfViewer.pdfUrl} 
@@ -850,9 +890,9 @@ const AdminDashboard = () => {
                             style={{ 
                                 width: '100%', 
                                 maxWidth: '800px', 
-                                minHeight: '1123px', // Keeps it A4 sized minimum
-                                height: 'auto',      // Automatically grows with the text!
-                                margin: '0 auto',    // Centers the paper
+                                minHeight: '1123px',
+                                height: 'auto',
+                                margin: '0 auto',
                                 background: 'white', 
                                 padding: '80px 60px', 
                                 boxShadow: '0 10px 25px rgba(0,0,0,0.5)', 
@@ -915,9 +955,7 @@ const AdminDashboard = () => {
               <div className="card approved" onClick={() => setStatusFilter("Approved")} style={{ cursor: "pointer", border: statusFilter === "Approved" ? "2px solid #10b981" : "none" }}><p><FiCheckCircle style={{ marginRight: "8px", verticalAlign: "middle" }} /> Approved</p><span>{approvedCount}</span></div>
               <div className="card pending" onClick={() => setStatusFilter("Pending")} style={{ cursor: "pointer", border: statusFilter === "Pending" ? "2px solid #f59e0b" : "none" }}><p><FiClock style={{ marginRight: "8px", verticalAlign: "middle" }} /> Pending</p><span>{pendingCount}</span></div>
               <div className="card rejected" onClick={() => setStatusFilter("Rejected")} style={{ cursor: "pointer", border: statusFilter === "Rejected" ? "2px solid #ef4444" : "none" }}><p><FiXCircle style={{ marginRight: "8px", verticalAlign: "middle" }} /> Rejected</p><span>{rejectedCount}</span></div>
-              {statusFilter !== "All" && (
-                  <div className="card" onClick={() => setStatusFilter("All")} style={{ cursor: "pointer", background: "#f8fafc" }}><p>Clear Filter</p></div>
-              )}
+              
             </div>
 
             <div style={{ width: "100%", background: "white", borderRadius: "16px", boxShadow: "0 4px 6px rgba(0,0,0,0.05)", border: "1px solid #e2e8f0", overflowX: "auto" }}>
@@ -949,10 +987,39 @@ const AdminDashboard = () => {
                         <td style={{ padding: "20px 24px" }}><span className={`status-badge ${doc.status.toLowerCase()}`}>{doc.status}</span></td>
                         <td style={{ padding: "20px 24px", whiteSpace: "nowrap", width: "1%" }}>
                           <div style={{ display: 'flex', gap: '8px', flexWrap: 'nowrap', width: 'max-content' }}>
-                            <button onClick={() => handleViewPdf(doc)} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: "#eff6ff", color: "#2563eb", border: "1px solid #bfdbfe", padding: "8px 12px", borderRadius: "8px", fontWeight: "600", cursor: "pointer" }}><FiEye size={16} /> View PDF</button>
-                            <button onClick={() => openEditor(doc)} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: "#fffbeb", color: "#d97706", border: "1px solid #fde68a", padding: "8px 12px", borderRadius: "8px", fontWeight: "600", cursor: "pointer" }}><FiEdit size={16} /> Live Edit</button>
-                            <button onClick={() => updateStatus(doc.id, "Approved")} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: "#dcfce7", color: "#16a34a", border: "1px solid #bbf7d0", padding: "8px 12px", borderRadius: "8px", fontWeight: "600", cursor: "pointer" }}><FiCheck size={16} /> Approve</button>
-                            <button onClick={() => updateStatus(doc.id, "Rejected")} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: "#fee2e2", color: "#dc2626", border: "1px solid #fecaca", padding: "8px 12px", borderRadius: "8px", fontWeight: "600", cursor: "pointer" }}><FiX size={16} /> Reject</button>
+                            <button 
+                              onClick={() => openEditor(doc)} 
+                              style={{ 
+                                display: 'flex', alignItems: 'center', gap: '5px', 
+                                background: "#fffbeb", color: "#d97706", 
+                                border: "1px solid #fde68a", padding: "8px 12px", 
+                                borderRadius: "8px", fontWeight: "600", cursor: "pointer" 
+                              }}
+                            >
+                              <FiEdit size={16} /> Edit Document
+                            </button>
+                            <button 
+                              onClick={() => updateStatus(doc.id, "Approved")} 
+                              style={{ 
+                                display: 'flex', alignItems: 'center', gap: '5px', 
+                                background: "#dcfce7", color: "#16a34a", 
+                                border: "1px solid #bbf7d0", padding: "8px 12px", 
+                                borderRadius: "8px", fontWeight: "600", cursor: "pointer" 
+                              }}
+                            >
+                              <FiCheck size={16} /> Approve
+                            </button>
+                            <button 
+                              onClick={() => updateStatus(doc.id, "Rejected")} 
+                              style={{ 
+                                display: 'flex', alignItems: 'center', gap: '5px', 
+                                background: "#fee2e2", color: "#dc2626", 
+                                border: "1px solid #fecaca", padding: "8px 12px", 
+                                borderRadius: "8px", fontWeight: "600", cursor: "pointer" 
+                              }}
+                            >
+                              <FiX size={16} /> Reject
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -990,9 +1057,39 @@ const AdminDashboard = () => {
                       </td>
                       <td style={{ padding: "20px 24px", whiteSpace: "nowrap", width: "1%" }}>
                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'nowrap', width: "max-content" }}>
-                          <button onClick={() => handleViewPdf(doc)} style={{ background: '#eff6ff', color: "#2563eb", border: '1px solid #bfdbfe', padding: '8px 14px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '6px', cursor: "pointer", fontWeight: "600" }}><FiEye size={16} /> View PDF</button>
-                          <button onClick={() => handleDownloadPdf(doc)} style={{ background: '#f0fdf4', color: "#16a34a", border: '1px solid #bbf7d0', padding: '8px 14px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '6px', cursor: "pointer", fontWeight: "600" }}><FiDownload size={16} /> Save PDF</button>
-                          <button onClick={() => deleteDocument(doc.id)} style={{ background: '#fef2f2', color: "#dc2626", border: '1px solid #fecaca', padding: '8px 14px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '6px', cursor: "pointer", fontWeight: "600" }}><FiTrash2 size={16} /> Delete</button>
+                          <button 
+                            onClick={() => openEditor(doc)} 
+                            style={{ 
+                              background: '#fffbeb', color: "#d97706", 
+                              border: '1px solid #fde68a', padding: '8px 14px', 
+                              borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '6px', 
+                              cursor: "pointer", fontWeight: "600" 
+                            }}
+                          >
+                            <FiEdit size={16} /> View Document
+                          </button>
+                          <button 
+                            onClick={() => handleDownloadPdf(doc)} 
+                            style={{ 
+                              background: '#f0fdf4', color: "#16a34a", 
+                              border: '1px solid #bbf7d0', padding: '8px 14px', 
+                              borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '6px', 
+                              cursor: "pointer", fontWeight: "600" 
+                            }}
+                          >
+                            <FiDownload size={16} /> Save PDF
+                          </button>
+                          <button 
+                            onClick={() => deleteDocument(doc.id)} 
+                            style={{ 
+                              background: '#fef2f2', color: "#dc2626", 
+                              border: '1px solid #fecaca', padding: '8px 14px', 
+                              borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '6px', 
+                              cursor: "pointer", fontWeight: "600" 
+                            }}
+                          >
+                            <FiTrash2 size={16} /> Delete
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1405,8 +1502,22 @@ const AdminDashboard = () => {
                         </div>
                       </div>
                       
-                      <button onClick={() => handleViewPdf(doc)} style={{ padding: "10px 20px", background: "#4f46e5", color: "white", borderRadius: "10px", cursor: "pointer", fontWeight: "bold", border: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <FiEye /> View PDF
+                      <button 
+                        onClick={() => openEditor(doc)} 
+                        style={{ 
+                          padding: "10px 20px", 
+                          background: "#4f46e5", 
+                          color: "white", 
+                          borderRadius: "10px", 
+                          cursor: "pointer", 
+                          fontWeight: "bold", 
+                          border: 'none', 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '6px' 
+                        }}
+                      >
+                        <FiEdit /> View Draft
                       </button>
                     </div>
                   ))}
