@@ -1,0 +1,30 @@
+/* 🔥 FIX CHROME AUTOFILL WHITE TEXT + INVISIBLE CURSOR */
+input,
+textarea,
+select {
+  color: #000 !important;
+  -webkit-text-fill-color: #000 !important;
+  caret-color: #000 !important;
+}
+
+/* Autofill override */
+input:-webkit-autofill,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: #000 !important;
+  box-shadow: 0 0 0 1000px #ffffff inset !important;
+  caret-color: #000 !important;
+  border: 1px solid #bbb !important;
+}
+
+/* When focused */
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill:focus,
+select:-webkit-autofill:focus {
+  -webkit-text-fill-color: #000 !important;
+}
+
+/* Force light text rendering */
+:root {
+  color-scheme: light !important;
+}
